@@ -218,7 +218,7 @@ def kinematics(m: Model, d: Data) -> Data:
     xmat_np = np.array(xmat)
     for i in range(m.nbody):
       if m.body_mocapid[i] >= 0:
-        mid = m.body_mocapid[i]
+        mid = int(m.body_mocapid[i])
         xpos_np[i] = np.array(d.mocap_pos[mid])
         mq = mjx_math.normalize(d.mocap_quat[mid])
         xquat_np[i] = np.array(mq)
@@ -503,7 +503,7 @@ def factor_m(m: Model, d: Data) -> Data:
       madr_ij, j = madr_ij + 1, int(m.dof_parentid[j])
       if j == -1:
         break
-      out_beg, out_end = tuple(m.dof_Madr[j : j + 2])
+      out_beg, out_end = int(m.dof_Madr[j]), int(m.dof_Madr[j + 1])
       updates.setdefault(depth[j], []).append(
           (out_beg, out_end, madr_d, madr_ij)
       )
@@ -833,13 +833,13 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
     all_forces_mx = mx.concatenate(forces)
 
     for k in range(all_forces_mx.shape[0]):
-      ci = all_idx[k]
+      ci = int(all_idx[k])
       frame = (d._impl or d).contact.frame[ci]
       pos = (d._impl or d).contact.pos[ci]
-      g1 = (d._impl or d).contact.geom[ci, 0]
-      g2 = (d._impl or d).contact.geom[ci, 1]
-      id1 = m.geom_bodyid[int(g1)]
-      id2 = m.geom_bodyid[int(g2)]
+      g1 = int((d._impl or d).contact.geom[ci, 0])
+      g2 = int((d._impl or d).contact.geom[ci, 1])
+      id1 = int(m.geom_bodyid[g1])
+      id2 = int(m.geom_bodyid[g2])
       com1 = np.array(d.subtree_com[int(m.body_rootid[id1])])
       com2 = np.array(d.subtree_com[int(m.body_rootid[id2])])
 
@@ -957,7 +957,7 @@ def tendon(m: Model, d: Data) -> Data:
   length_jnt = mx.array(length_jnt_np)
 
   adr_moment_jnt = np.repeat(tendon_id_jnt, tendon_num_jnt)
-  dofadr_moment_jnt = int(m.jnt_dofadr[wrap_objid_jnt])
+  dofadr_moment_jnt = np.array([int(m.jnt_dofadr[o]) for o in wrap_objid_jnt])
 
   # Pulleys
   (wrap_id_pulley,) = np.nonzero(m.wrap_type == WrapType.PULLEY)
@@ -981,10 +981,12 @@ def tendon(m: Model, d: Data) -> Data:
   lengths_site_list = []
   moments_site_list = []
   for k in range(wrap_id_site_pair.size):
-    pnt0 = d.site_xpos[wrap_objid_site0[k]]
-    pnt1 = d.site_xpos[wrap_objid_site1[k]]
-    body0 = m.site_bodyid[wrap_objid_site0[k]]
-    body1 = m.site_bodyid[wrap_objid_site1[k]]
+    sid0 = int(wrap_objid_site0[k])
+    sid1 = int(wrap_objid_site1[k])
+    pnt0 = d.site_xpos[sid0]
+    pnt1 = d.site_xpos[sid1]
+    body0 = int(m.site_bodyid[sid0])
+    body1 = int(m.site_bodyid[sid1])
 
     dif = pnt1 - pnt0
     length = mjx_math.norm(dif)
@@ -1070,7 +1072,7 @@ def _site_dof_mask(m: Model) -> np.ndarray:
   """Creates a dof mask for site transmissions."""
   mask = np.ones((m.nu, m.nv))
   for i in np.nonzero(m.actuator_trnid[:, 1] != -1)[0]:
-    id_, refid = int(m.actuator_trnid[i])
+    id_, refid = int(m.actuator_trnid[i, 0]), int(m.actuator_trnid[i, 1])
     b0 = m.body_weldid[int(m.site_bodyid[id_])]
     b1 = m.body_weldid[int(m.site_bodyid[refid])]
     dofadr0 = int(m.body_dofadr[b0]) + int(m.body_dofnum[b0]) - 1
@@ -1122,7 +1124,7 @@ def transmission(m: Model, d: Data) -> Data:
 
   for u in range(m.nu):
     trntype = int(m.actuator_trntype[u])
-    trnid = int(m.actuator_trnid[u])
+    trnid = [int(m.actuator_trnid[u, 0]), int(m.actuator_trnid[u, 1])]
     gear = mx.array(m.actuator_gear[u])
 
     if trntype in (TrnType.JOINT, TrnType.JOINTINPARENT):
@@ -1281,15 +1283,17 @@ def tendon_dot(m: Model, d: Data) -> mx.array:
   )
   wrap_objid_site0 = m.wrap_objid[wrap_id_site_pair]
   wrap_objid_site1 = m.wrap_objid[wrap_id_site_pair + 1]
-  site_bodyid0 = int(m.site_bodyid[wrap_objid_site0])
-  site_bodyid1 = int(m.site_bodyid[wrap_objid_site1])
+  site_bodyid0 = np.array([int(m.site_bodyid[o]) for o in wrap_objid_site0]) if wrap_objid_site0.size else np.array([], dtype=np.int32)
+  site_bodyid1 = np.array([int(m.site_bodyid[o]) for o in wrap_objid_site1]) if wrap_objid_site1.size else np.array([], dtype=np.int32)
 
   momentdots_list = []
   for k in range(wrap_id_site_pair.size):
-    wpnt0 = d.site_xpos[wrap_objid_site0[k]]
-    wpnt1 = d.site_xpos[wrap_objid_site1[k]]
-    body0 = site_bodyid0[k]
-    body1 = site_bodyid1[k]
+    wsid0 = int(wrap_objid_site0[k])
+    wsid1 = int(wrap_objid_site1[k])
+    wpnt0 = d.site_xpos[wsid0]
+    wpnt1 = d.site_xpos[wsid1]
+    body0 = int(site_bodyid0[k])
+    body1 = int(site_bodyid1[k])
 
     subtree_com0 = d.subtree_com[int(m.body_rootid[body0])]
     subtree_com1 = d.subtree_com[int(m.body_rootid[body1])]

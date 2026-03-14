@@ -111,8 +111,12 @@ def _row(j: mx.array, *args) -> _Efc:
 
   args = list(args)
   for i, arg in enumerate(args):
-    if not hasattr(arg, 'shape') or not arg.shape or arg.shape[0] != j.shape[0]:
-      args[i] = mx.tile(arg, (j.shape[0],) + (1,) * (len(arg.shape) if hasattr(arg, 'shape') else 0))
+    # Ensure arg is mx.array before tiling
+    if not isinstance(arg, mx.array):
+      arg = mx.array(arg) if hasattr(arg, '__len__') or hasattr(arg, 'shape') else mx.array([arg])
+      args[i] = arg
+    if not arg.shape or arg.shape[0] != j.shape[0]:
+      args[i] = mx.tile(arg, (j.shape[0],) + (1,) * max(0, len(arg.shape) - 1))
   return _Efc(j, *args)
 
 
@@ -558,13 +562,22 @@ def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
     return None
 
   def _single_row(c_dist, c_includemargin, c_geom, c_pos, c_frame, c_solref, c_solimp):
+    # Ensure all contact fields are mx.array (they may arrive as numpy)
+    c_dist = mx.array(c_dist) if not isinstance(c_dist, mx.array) else c_dist
+    c_includemargin = mx.array(c_includemargin) if not isinstance(c_includemargin, mx.array) else c_includemargin
+    c_geom = mx.array(c_geom) if not isinstance(c_geom, mx.array) else c_geom
+    c_pos = mx.array(c_pos) if not isinstance(c_pos, mx.array) else c_pos
+    c_frame = mx.array(c_frame) if not isinstance(c_frame, mx.array) else c_frame
+    c_solref = mx.array(c_solref) if not isinstance(c_solref, mx.array) else c_solref
+    c_solimp = mx.array(c_solimp) if not isinstance(c_solimp, mx.array) else c_solimp
+
     pos = c_dist - c_includemargin
     active = pos < 0
-    body1 = mx.array(m.geom_bodyid)[c_geom[0]]
-    body2 = mx.array(m.geom_bodyid)[c_geom[1]]
+    body1 = mx.array(m.geom_bodyid)[int(c_geom[0].item())]
+    body2 = mx.array(m.geom_bodyid)[int(c_geom[1].item())]
     jac1p, _ = support.jac(m, d, c_pos, int(body1.item()))
     jac2p, _ = support.jac(m, d, c_pos, int(body2.item()))
-    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
+    frame_3x3 = mx.reshape(c_frame, (3, 3))
     j = (frame_3x3 @ (jac2p - jac1p).T)[0]
     invweight = m.body_invweight0[int(body1.item()), 0] + m.body_invweight0[int(body2.item()), 0]
 
@@ -582,8 +595,8 @@ def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
   contact = (d._impl or d).contact
   results = [
       _single_row(
-          contact.dist[i], contact.includemargin[i], contact.geom[i],
-          contact.pos[i], contact.frame[i], contact.solref[i], contact.solimp[i],
+          contact.dist[int(i)], contact.includemargin[int(i)], contact.geom[int(i)],
+          contact.pos[int(i)], contact.frame[int(i)], contact.solref[int(i)], contact.solimp[int(i)],
       )
       for i in con_id
   ]
@@ -606,13 +619,23 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
     return None
 
   def _single_row(c_dist, c_includemargin, c_geom, c_pos, c_frame, c_friction, c_solref, c_solimp):
+    # Ensure all contact fields are mx.array (they may arrive as numpy)
+    c_dist = mx.array(c_dist) if not isinstance(c_dist, mx.array) else c_dist
+    c_includemargin = mx.array(c_includemargin) if not isinstance(c_includemargin, mx.array) else c_includemargin
+    c_geom = mx.array(c_geom) if not isinstance(c_geom, mx.array) else c_geom
+    c_pos = mx.array(c_pos) if not isinstance(c_pos, mx.array) else c_pos
+    c_frame = mx.array(c_frame) if not isinstance(c_frame, mx.array) else c_frame
+    c_friction = mx.array(c_friction) if not isinstance(c_friction, mx.array) else c_friction
+    c_solref = mx.array(c_solref) if not isinstance(c_solref, mx.array) else c_solref
+    c_solimp = mx.array(c_solimp) if not isinstance(c_solimp, mx.array) else c_solimp
+
     pos = c_dist - c_includemargin
     active = pos < 0
-    body1 = int(np.array(m.geom_bodyid)[int(c_geom[0])])
-    body2 = int(np.array(m.geom_bodyid)[int(c_geom[1])])
+    body1 = int(np.array(m.geom_bodyid)[int(c_geom[0].item())])
+    body2 = int(np.array(m.geom_bodyid)[int(c_geom[1].item())])
     jac1p, jac1r = support.jac(m, d, c_pos, body1)
     jac2p, jac2r = support.jac(m, d, c_pos, body2)
-    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
+    frame_3x3 = mx.reshape(c_frame, (3, 3))
     diff = frame_3x3 @ (jac2p - jac1p).T
     if condim > 3:
       diff = mx.concatenate([diff, (frame_3x3 @ (jac2r - jac1r).T)], axis=0)
@@ -627,7 +650,7 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
     j = diff[0] + mx.repeat(diff[1:condim], 2, axis=0) * fri[:, None]
 
     # pyramidal has common invweight across all edges
-    invweight = m.body_invweight0[int(body1.item()), 0] + m.body_invweight0[int(body2.item()), 0]
+    invweight = m.body_invweight0[body1, 0] + m.body_invweight0[body2, 0]
     invweight = invweight + fri[0] * fri[0] * invweight
     invweight = invweight * 2 * fri[0] * fri[0] / m.opt.impratio
 
@@ -645,9 +668,9 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
   contact = (d._impl or d).contact
   results = [
       _single_row(
-          contact.dist[i], contact.includemargin[i], contact.geom[i],
-          contact.pos[i], contact.frame[i], contact.friction[i],
-          contact.solref[i], contact.solimp[i],
+          contact.dist[int(i)], contact.includemargin[int(i)], contact.geom[int(i)],
+          contact.pos[int(i)], contact.frame[int(i)], contact.friction[int(i)],
+          contact.solref[int(i)], contact.solimp[int(i)],
       )
       for i in con_id
   ]
@@ -672,13 +695,24 @@ def _efc_contact_elliptic(m: Model, d: Data, condim: int) -> Optional[_Efc]:
 
   def _single_row(c_dist, c_includemargin, c_geom, c_pos, c_frame, c_friction,
                    c_solref, c_solreffriction, c_solimp):
+    # Ensure all contact fields are mx.array (they may arrive as numpy)
+    c_dist = mx.array(c_dist) if not isinstance(c_dist, mx.array) else c_dist
+    c_includemargin = mx.array(c_includemargin) if not isinstance(c_includemargin, mx.array) else c_includemargin
+    c_geom = mx.array(c_geom) if not isinstance(c_geom, mx.array) else c_geom
+    c_pos = mx.array(c_pos) if not isinstance(c_pos, mx.array) else c_pos
+    c_frame = mx.array(c_frame) if not isinstance(c_frame, mx.array) else c_frame
+    c_friction = mx.array(c_friction) if not isinstance(c_friction, mx.array) else c_friction
+    c_solref = mx.array(c_solref) if not isinstance(c_solref, mx.array) else c_solref
+    c_solreffriction = mx.array(c_solreffriction) if not isinstance(c_solreffriction, mx.array) else c_solreffriction
+    c_solimp = mx.array(c_solimp) if not isinstance(c_solimp, mx.array) else c_solimp
+
     pos = c_dist - c_includemargin
     active = pos < 0
-    obj1id = mx.array(m.geom_bodyid)[c_geom[0]]
-    obj2id = mx.array(m.geom_bodyid)[c_geom[1]]
+    obj1id = mx.array(m.geom_bodyid)[int(c_geom[0].item())]
+    obj2id = mx.array(m.geom_bodyid)[int(c_geom[1].item())]
     jac1p, jac1r = support.jac(m, d, c_pos, int(obj1id.item()))
     jac2p, jac2r = support.jac(m, d, c_pos, int(obj2id.item()))
-    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
+    frame_3x3 = mx.reshape(c_frame, (3, 3))
     j = frame_3x3 @ (jac2p - jac1p).T
     if condim > 3:
       j = mx.concatenate([j, (frame_3x3 @ (jac2r - jac1r).T)[: condim - 3]])
@@ -708,9 +742,9 @@ def _efc_contact_elliptic(m: Model, d: Data, condim: int) -> Optional[_Efc]:
   contact = (d._impl or d).contact
   results = [
       _single_row(
-          contact.dist[i], contact.includemargin[i], contact.geom[i],
-          contact.pos[i], contact.frame[i], contact.friction[i],
-          contact.solref[i], contact.solreffriction[i], contact.solimp[i],
+          contact.dist[int(i)], contact.includemargin[int(i)], contact.geom[int(i)],
+          contact.pos[int(i)], contact.frame[int(i)], contact.friction[int(i)],
+          contact.solref[int(i)], contact.solreffriction[int(i)], contact.solimp[int(i)],
       )
       for i in con_id
   ]

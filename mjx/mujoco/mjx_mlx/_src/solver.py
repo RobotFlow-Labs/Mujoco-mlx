@@ -92,6 +92,7 @@ class Context(PyTreeNode):
       mask_idx = np.nonzero(mask)[0]
       if mask_idx.size > 0:
         friction = (d._impl or d).contact.friction[mask_idx]
+        friction = mx.array(friction) if not isinstance(friction, mx.array) else friction
         dim = (d._impl or d).contact.dim[mask_idx]
         mu = friction[:, 0] / mx.sqrt(m.opt.impratio)
         fri = mx.concatenate([mu[:, None], friction], axis=1)
@@ -234,7 +235,7 @@ class _LSPoint(PyTreeNode):
       efc_elliptic_idx = np.nonzero((d._impl or d).contact.dim > 1)[0]
       efc_elliptic_addrs = (d._impl or d).contact.efc_address[efc_elliptic_idx]
       if len(efc_elliptic_addrs) > 0:
-        quad_c = quad[efc_elliptic_addrs] * bottom_zone[:, None]
+        quad_c = quad[mx.array(efc_elliptic_addrs)] * bottom_zone[:, None]
         quad_total = quad_total + mx.sum(quad_c, axis=0)
 
       # elliptic middle zone
@@ -325,6 +326,7 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
   elif m.opt.cone == ConeType.ELLIPTIC:
     friction_idx = np.nonzero((d._impl or d).contact.dim > 1)[0]
     friction = (d._impl or d).contact.friction[friction_idx]
+    friction = mx.array(friction) if not isinstance(friction, mx.array) else friction
     efc_address = (d._impl or d).contact.efc_address[friction_idx]
     dim = (d._impl or d).contact.dim[friction_idx]
 
@@ -359,7 +361,7 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
 
       # middle zone: cone
       middle_zone = (t > 0) & (n < (mu * t)) & ((mu * n + t) > 0)
-      dm = (d._impl or d).efc_D[efc_address] / mx.maximum(
+      dm = (d._impl or d).efc_D[mx.array(efc_address)] / mx.maximum(
           mu * mu * (1 + mu * mu), mx.array(mujoco.mjMINVAL)
       )
       nmt = n - mu * t

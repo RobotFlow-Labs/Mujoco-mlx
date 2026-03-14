@@ -311,7 +311,7 @@ def flat(
             else -1
         ),
         's': (
-            int(m.actuator_trnid[i])
+            np.array([int(m.actuator_trnid[i, 0]), int(m.actuator_trnid[i, 1])])
             if int(m.actuator_trntype[i]) == TrnType.SITE
             else np.array([-1, -1])
         ),
