@@ -25,10 +25,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import mlx.core as mx
 import mujoco
-from mujoco.mjx._src import collision_driver
-from mujoco.mjx._src import constraint
-from mujoco.mjx._src import mesh
-from mujoco.mjx._src import support
+from mujoco.mjx_mlx._src import collision_driver
+from mujoco.mjx_mlx._src import constraint
+from mujoco.mjx_mlx._src import mesh
+from mujoco.mjx_mlx._src import support
 from mujoco.mjx_mlx._src import types
 import numpy as np
 import scipy
@@ -322,7 +322,7 @@ def make_data(
   """
   # Use the original JAX collision_driver and constraint modules which
   # operate on numpy/MjModel data before array placement.
-  from mujoco.mjx._src import types as jax_types  # pylint: disable=g-import-not-at-top
+  from mujoco.mjx_mlx._src import types as jax_types  # pylint: disable=g-import-not-at-top
 
   dim = collision_driver.make_condim(m, impl=jax_types.Impl.JAX)
   efc_type = constraint.make_efc_type(m, dim)
@@ -467,7 +467,7 @@ def put_data(
   Returns:
     an mjx_mlx.Data with MLX arrays
   """
-  from mujoco.mjx._src import types as jax_types  # pylint: disable=g-import-not-at-top
+  from mujoco.mjx_mlx._src import types as jax_types  # pylint: disable=g-import-not-at-top
 
   dim = collision_driver.make_condim(m, impl=jax_types.Impl.JAX)
   efc_type = constraint.make_efc_type(m, dim)

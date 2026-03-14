@@ -48,7 +48,8 @@ def deriv_smooth_vel(m: Model, d: Data) -> Optional[mx.array]:
     affine_gain = m.actuator_gaintype == GainType.AFFINE
     gain_vel = m.actuator_gainprm[:, 2] * affine_gain
     ctrl_np = np.array(d.ctrl)
-    ctrl_np[m.actuator_dyntype != DynType.NONE] = np.array(d.act)
+    dyn_mask = np.array(m.actuator_dyntype != DynType.NONE)
+    ctrl_np[dyn_mask] = np.array(d.act)
     ctrl = mx.array(ctrl_np)
     vel = bias_vel + gain_vel * ctrl
     qderiv = d._impl.actuator_moment.T @ (

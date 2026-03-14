@@ -37,46 +37,6 @@ import trimesh
 _MAX_HULL_FACE_VERTICES = 20
 
 
-def _stack_tree(vals):
-  first = vals[0]
-  if isinstance(first, tuple):
-    return tuple(_stack_tree([v[i] for v in vals]) for i in range(len(first)))
-  if isinstance(first, list):
-    return [_stack_tree([v[i] for v in vals]) for i in range(len(first))]
-  return mx.stack([mx.array(v) for v in vals], axis=0)
-
-
-def _vmap(fn, in_axes=0):
-  """Loop-based replacement for jax.vmap."""
-
-  def mapped(*args):
-    if isinstance(in_axes, tuple):
-      axes = in_axes
-    else:
-      axes = tuple(in_axes for _ in args)
-    n = None
-    for arg, ax in zip(args, axes):
-      if ax is not None:
-        n = arg.shape[ax]
-        break
-    if n is None:
-      return fn(*args)
-    out = []
-    for i in range(int(n)):
-      call_args = []
-      for arg, ax in zip(args, axes):
-        if ax is None:
-          call_args.append(arg)
-        elif ax == 0:
-          call_args.append(arg[i])
-        else:
-          raise NotImplementedError(f'in_axes={ax} not supported')
-      out.append(fn(*call_args))
-    return _stack_tree(out)
-
-  return mapped
-
-
 def _tree_map(fn, *nodes):
   """Small tree-map helper for PyTreeNode-like dataclasses and containers."""
   if len(nodes) == 1:
@@ -251,8 +211,9 @@ def box(info: GeomInfo) -> ConvexInfo:
       edge_face_normal,
   )
   c = _tree_map(mx.array, c)
-  vert = _vmap(mx.multiply, in_axes=(None, 0))(c.vert, info.size)
-  face = _vmap(mx.multiply, in_axes=(None, 0))(c.face, info.size)
+  # Scale vert and face by size (element-wise broadcast: each vertex * size)
+  vert = c.vert * info.size  # (n_vert, 3) * (3,) broadcasts correctly
+  face = c.face * info.size  # (n_face, n_vert_per_face, 3) * (3,) broadcasts
   c = c.replace(vert=vert, face=face)
 
   return c
@@ -358,7 +319,7 @@ def hfield_prism(vert: mx.array) -> ConvexInfo:
   centroid = mx.mean(vert, axis=0)
   vert = vert - centroid
   face = vert[face]
-  face_norm = _vmap(get_face_norm)(face)
+  face_norm = mx.stack([get_face_norm(face[i]) for i in range(face.shape[0])], axis=0)
 
   c = ConvexInfo(
       centroid,

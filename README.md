@@ -2,6 +2,66 @@
   <a href="#"><img alt="MuJoCo" src="banner.png" width="100%"/></a>
 </h1>
 
+<h2 align="center">MJX-MLX: Apple Silicon MLX Port of MuJoCo XLA</h2>
+
+> **This fork ports MJX (MuJoCo XLA) from JAX to [Apple MLX](https://github.com/ml-explore/mlx).**
+> The first MLX-native GPU-accelerated physics engine for robotics on Apple Silicon.
+> Maintained by [RobotFlow Labs](https://github.com/RobotFlow-Labs).
+
+### What is MJX-MLX?
+
+MJX is Google DeepMind's JAX-based GPU physics engine for MuJoCo. MJX-MLX replaces JAX with Apple MLX,
+enabling GPU-accelerated physics simulation on M1/M2/M3/M4/M5 Macs via Metal.
+
+### Port Status
+
+| Module | Files | Lines | Status |
+|--------|-------|-------|--------|
+| Foundation (types, math, dataclasses, io) | 4 | 2,831 | Ported + verified |
+| Core dynamics (support, smooth, forward, passive, inverse) | 5 | ~3,500 | Ported |
+| Constraint system (constraint, solver) | 2 | ~2,500 | Ported |
+| Collision (primitive, convex, driver, sdf, bvh, types) | 6 | ~3,000 | Ported |
+| Sensors and rendering (sensor, ray, mesh, scan, derivative, render) | 6 | ~2,300 | Ported |
+| **Total** | **23 files** | **~10,100 lines** | **All modules import clean** |
+
+### Test Results (2026-03-14)
+
+```
+MJX-MLX Physics Engine Test Suite
+  Phase 0: 7/7 math tests PASS (quaternions, rotations, normalize)
+  Phase 1: 5/5 dynamics imports PASS (support, smooth, constraint, solver, forward)
+  Phase 2: 2/2 collision imports PASS
+  Phase 3: 2/2 sensor/rendering imports PASS
+  Benchmark: 1,511 quat_mul+normalize/sec on Apple Silicon
+  RESULTS: 16 passed, 0 failed, 0 skipped
+```
+
+### Quick Start
+
+```bash
+git clone https://github.com/RobotFlow-Labs/Mujoco-mlx.git
+cd Mujoco-mlx
+pip install mujoco mlx
+
+# Run test suite
+PYTHONPATH=mjx python mjx/mujoco/mjx_mlx/test_mlx_physics.py
+```
+
+### Package Location
+
+The MLX port lives in `mjx/mujoco/mjx_mlx/` alongside the original `mjx/mujoco/mjx/` (JAX).
+The C MuJoCo engine is unchanged -- MJX-MLX only replaces the Python GPU physics layer.
+
+### Related
+
+| Repository | What |
+|------------|------|
+| [IsaacLab-mlx](https://github.com/RobotFlow-Labs/IsaacLab-mlx) | RL framework on Apple Silicon (10 task families) |
+| [zed-sdk-mlx](https://github.com/RobotFlow-Labs/zed-sdk-mlx) | ZED stereo camera SDK for macOS |
+| [zed-ros2-wrapper-mlx](https://github.com/RobotFlow-Labs/zed-ros2-wrapper-mlx) | ROS2 ZED wrapper for macOS |
+
+---
+
 <p>
   <a href="https://github.com/google-deepmind/mujoco/actions/workflows/build.yml?query=branch%3Amain" alt="GitHub Actions">
     <img src="https://img.shields.io/github/actions/workflow/status/google-deepmind/mujoco/build.yml?branch=main">

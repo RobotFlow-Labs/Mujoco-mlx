@@ -27,46 +27,6 @@ from mujoco.mjx_mlx._src.types import Model
 import numpy as np
 
 
-def _stack_tree(vals):
-  first = vals[0]
-  if isinstance(first, tuple):
-    return tuple(_stack_tree([v[i] for v in vals]) for i in range(len(first)))
-  if isinstance(first, list):
-    return [_stack_tree([v[i] for v in vals]) for i in range(len(first))]
-  return mx.stack([mx.array(v) for v in vals], axis=0)
-
-
-def _vmap(fn, in_axes=0):
-  """Loop-based replacement for jax.vmap."""
-
-  def mapped(*args):
-    if isinstance(in_axes, tuple):
-      axes = in_axes
-    else:
-      axes = tuple(in_axes for _ in args)
-    n = None
-    for arg, ax in zip(args, axes):
-      if ax is not None:
-        n = arg.shape[ax]
-        break
-    if n is None:
-      return fn(*args)
-    out = []
-    for i in range(int(n)):
-      call_args = []
-      for arg, ax in zip(args, axes):
-        if ax is None:
-          call_args.append(arg)
-        elif ax == 0:
-          call_args.append(arg[i])
-        else:
-          raise NotImplementedError(f'in_axes={ax} not supported')
-      out.append(fn(*call_args))
-    return _stack_tree(out)
-
-  return mapped
-
-
 def _ray_quad(
     a: mx.array, b: mx.array, c: mx.array
 ) -> Tuple[mx.array, mx.array]:
@@ -226,7 +186,7 @@ def _ray_mesh(
   data_id = m.geom_dataid[geom_id]
 
   ray_basis = lambda x: mx.array(math.orthogonals(math.normalize(x))).T
-  basis = _vmap(ray_basis)(vec)
+  basis = mx.stack([ray_basis(vec[i]) for i in range(vec.shape[0])], axis=0)
 
   faceadr = np.append(m.mesh_faceadr, m.nmeshface)
   vertadr = np.append(m.mesh_vertadr, m.nmeshvert)
@@ -236,8 +196,9 @@ def _ray_mesh(
     face = m.mesh_face[faceadr[id_] : faceadr[id_ + 1]]
     vert = m.mesh_vert[vertadr[id_] : vertadr[id_ + 1]]
     vert = mx.array(vert[face])
-    dist = _vmap(_ray_triangle, in_axes=(0, None, None, None))(
-        vert, pnt[i], vec[i], basis[i]
+    dist = mx.stack(
+        [_ray_triangle(vert[j], pnt[i], vec[i], basis[i]) for j in range(vert.shape[0])],
+        axis=0,
     )
     dists.append(dist)
     geom_ids.append(np.repeat(geom_id[i], dist.size))
@@ -297,8 +258,11 @@ def ray(
     geom_filter &= geomgroup[np.clip(m.geom_group, 0, mujoco.mjNGROUP)]
 
   # map ray to local geom frames
-  geom_pnts = _vmap(lambda x, y: x.T @ (pnt - y))(d.geom_xmat, d.geom_xpos)
-  geom_vecs = _vmap(lambda x: x.T @ vec)(d.geom_xmat)
+  geom_pnts = mx.stack(
+      [d.geom_xmat[i].T @ (pnt - d.geom_xpos[i]) for i in range(d.geom_xmat.shape[0])],
+      axis=0,
+  )
+  geom_vecs = mx.stack([d.geom_xmat[i].T @ vec for i in range(d.geom_xmat.shape[0])], axis=0)
 
   geom_filter_dyn = (m.geom_matid != -1) | (m.geom_rgba[:, 3] != 0)
   geom_filter_dyn &= (m.geom_matid == -1) | (m.mat_rgba[m.geom_matid, 3] != 0)
@@ -313,7 +277,10 @@ def ray(
     if geom_type == GeomType.MESH:
       dist, id_ = fn(m, id_, *args)
     else:
-      dist = _vmap(fn)(*args)
+      dist = mx.stack(
+          [fn(args[0][j], args[1][j], args[2][j]) for j in range(args[0].shape[0])],
+          axis=0,
+      )
     id_np = np.array(id_, dtype=np.int32)
     dist = mx.where(geom_filter_dyn[id_np], dist, mx.inf)
     dists, ids = dists + [dist], ids + [mx.array(id_np)]

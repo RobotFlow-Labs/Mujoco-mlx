@@ -56,6 +56,11 @@ def _tree_replace_impl(base, attr, val):
 class MLXNode:
   """Plain dataclass base that replaces JAX PyTreeNode for MLX."""
 
+  @classmethod
+  def fields(cls):
+    """Return dataclass fields (compatibility with flax.struct API)."""
+    return dataclasses.fields(cls)
+
   def replace(self, **overrides):
     """Return a copy with specified fields replaced."""
     return dataclasses.replace(self, **overrides)

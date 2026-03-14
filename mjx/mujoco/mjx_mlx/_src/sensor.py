@@ -32,6 +32,59 @@ from mujoco.mjx_mlx._src.types import TrnType
 # pylint: enable=g-importing-member
 import numpy as np
 
+
+def _stack_tree(vals):
+  first = vals[0]
+  if isinstance(first, tuple):
+    return tuple(_stack_tree([v[i] for v in vals]) for i in range(len(first)))
+  if isinstance(first, list):
+    return [_stack_tree([v[i] for v in vals]) for i in range(len(first))]
+  return mx.stack([mx.array(v) for v in vals], axis=0)
+
+
+def _vmap(fn, in_axes=0):
+  """Loop-based map helper."""
+
+  def mapped(*args):
+    if isinstance(in_axes, tuple):
+      axes = in_axes
+    else:
+      axes = tuple(in_axes for _ in args)
+    n = None
+    for arg, ax in zip(args, axes):
+      if ax is not None:
+        n = arg.shape[ax]
+        break
+    if n is None:
+      return fn(*args)
+    out = []
+    for i in range(int(n)):
+      call_args = []
+      for arg, ax in zip(args, axes):
+        if ax is None:
+          call_args.append(arg)
+        elif ax == 0:
+          call_args.append(arg[i])
+        else:
+          raise NotImplementedError(f'in_axes={ax} not supported')
+      out.append(fn(*call_args))
+    return _stack_tree(out)
+
+  return mapped
+
+
+def _set_at_indices(arr: mx.array, idx: np.ndarray, vals: mx.array) -> mx.array:
+  """Immutable indexed update helper for MLX arrays."""
+  arr_np = np.array(arr).copy()
+  arr_np[np.array(idx, dtype=np.int32)] = np.array(vals)
+  return mx.array(arr_np)
+
+
+def _cross(a: mx.array, b: mx.array) -> mx.array:
+  """Manual cross product helper."""
+  return mx.array(np.cross(np.array(a), np.array(b)))
+
+
 def _apply_cutoff(
     sensor: mx.array, cutoff: mx.array, data_type: int
 ) -> mx.array:
@@ -48,10 +101,11 @@ def _apply_cutoff(
 
   return fn(sensor, cutoff)
 
+
 def sensor_pos(m: Model, d: Data) -> Data:
   """Compute position-dependent sensors values."""
   if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_pos requires JAX backend implementation.')
+    raise ValueError('sensor_pos requires MLX backend implementation.')
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -100,8 +154,12 @@ def sensor_pos(m: Model, d: Data) -> Data:
       def _cam_project(
           target_xpos, xpos, xmat, res, fovy, intrinsic, sensorsize, focal_flag
       ):
-        translation = mx.eye(4).at[0:3, 3].set(-xpos)
-        rotation = mx.eye(4).at[:3, :3].set(xmat.T)
+        translation_np = np.eye(4, dtype=np.float32)
+        translation_np[0:3, 3] = -np.array(xpos)
+        translation = mx.array(translation_np)
+        rotation_np = np.eye(4, dtype=np.float32)
+        rotation_np[:3, :3] = np.array(xmat.T)
+        rotation = mx.array(rotation_np)
 
         # focal transformation matrix (3 x 4)
         f = 0.5 / mx.tan(fovy * mx.pi / 360.0) * res[1]
@@ -114,13 +172,15 @@ def sensor_pos(m: Model, d: Data) -> Data:
         focal = mx.array([[-fx, 0, 0, 0], [0, fy, 0, 0], [0, 0, 1.0, 0]])
 
         # image matrix (3 x 3)
-        image = mx.eye(3).at[:2, 2].set(res[0:2] / 2.0)
+        image_np = np.eye(3, dtype=np.float32)
+        image_np[:2, 2] = np.array(res[0:2] / 2.0)
+        image = mx.array(image_np)
 
         # projection matrix (3 x 4): product of all 4 matrices
         proj = image @ focal @ rotation @ translation
 
         # projection matrix multiplies homogenous [x, y, z, 1] vectors
-        pos_hom = mx.append(target_xpos, 1.0)
+        pos_hom = mx.concatenate([target_xpos, mx.array([1.0])])
 
         # project world coordinates into pixel space, see:
         # https://en.wikipedia.org/wiki/3D_projection#Mathematical_formula
@@ -274,16 +334,17 @@ def sensor_pos(m: Model, d: Data) -> Data:
   if not adrs:
     return d
 
-  sensordata = d.sensordata.at[np.concatenate(adrs)].set(
-      mx.concatenate(sensors)
+  sensordata = _set_at_indices(
+      d.sensordata, np.concatenate(adrs), mx.concatenate(sensors)
   )
 
   return d.replace(sensordata=sensordata)
 
+
 def sensor_vel(m: Model, d: Data) -> Data:
   """Compute velocity-dependent sensors values."""
   if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_vel requires JAX backend implementation.')
+    raise ValueError('sensor_vel requires MLX backend implementation.')
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -323,7 +384,7 @@ def sensor_vel(m: Model, d: Data) -> Data:
       cvel = d.cvel[bodyid]
       subtree_com = d.subtree_com[m.body_rootid[bodyid]]
       sensor = _vmap(
-          lambda vec, dif, rot: rot.T @ (vec[3:] - mx.cross(dif, vec[:3]))
+          lambda vec, dif, rot: rot.T @ (vec[3:] - _cross(dif, vec[:3]))
       )(cvel, pos - subtree_com, rot)
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.GYRO:
@@ -374,10 +435,10 @@ def sensor_vel(m: Model, d: Data) -> Data:
         if sensor_type == SensorType.FRAMELINVEL:
           clinvel = cvel[:, 3:]
           clinvelref = cvelref[:, 3:]
-          xlinvel = clinvel - mx.cross(offset, cangvel)
-          xlinvelref = clinvelref - mx.cross(offsetref, cangvelref)
+          xlinvel = clinvel - _cross(offset, cangvel)
+          xlinvelref = clinvelref - _cross(offsetref, cangvelref)
           rvec = xpos - xposref
-          rel_vel = xlinvel - xlinvelref + mx.cross(rvec, cangvelref)
+          rel_vel = xlinvel - xlinvelref + _cross(rvec, cangvelref)
           sensor = mx.where(
               (refidt > -1)[:, None],
               _vmap(lambda mat, vec: mat.T @ vec)(xmatref, rel_vel),
@@ -414,16 +475,17 @@ def sensor_vel(m: Model, d: Data) -> Data:
   if not adrs:
     return d
 
-  sensordata = d.sensordata.at[np.concatenate(adrs)].set(
-      mx.concatenate(sensors)
+  sensordata = _set_at_indices(
+      d.sensordata, np.concatenate(adrs), mx.concatenate(sensors)
   )
 
   return d.replace(sensordata=sensordata)
 
+
 def sensor_acc(m: Model, d: Data) -> Data:
   """Compute acceleration/force-dependent sensors values."""
   if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_acc requires JAX backend implementation.')
+    raise ValueError('sensor_acc requires MLX backend implementation.')
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -524,7 +586,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
         )
         dist.append(mx.where(mx.isinf(dist_site), 0, dist_site))
         dist_id.append(dist_id_site)
-      dist = mx.vstack(dist)[np.argsort(np.concatenate(dist_id))]
+      dist = mx.concatenate(dist, axis=0)[np.argsort(np.concatenate(dist_id))]
 
       # accumulate normal forces for each site
       sensor = mx.dot((dist > 0) & contacts, contact_force[:, 0])
@@ -546,9 +608,9 @@ def sensor_acc(m: Model, d: Data) -> Data:
 
       def _reduce(reduction, mask):
         if reduction == 1:  # mindist
-          return mx.argsort(pos * mask, descending=False)
+          return mx.array(np.argsort(np.array(pos * mask)))
         if reduction == 2:  # maxforce
-          return mx.argsort(force_mag * mask, descending=True)
+          return mx.array(np.argsort(-np.array(force_mag * mask)))
         return mx.arange(mask.size)
 
       # number of data elements per slot
@@ -586,18 +648,18 @@ def sensor_acc(m: Model, d: Data) -> Data:
 
         if objtype == ObjType.UNKNOWN and reftype == ObjType.UNKNOWN:
           # all contacts match
-          match = np.ones(ncon, dtype=np.bool)
+          match = np.ones(ncon, dtype=bool)
 
           # matched and reduced contact ids
           sort = _reduce(reduce, match)
-          cid = sort[:num]
+          cid = np.array(sort[:num], dtype=np.int32)
 
           # number of contacts per sensor
-          nfound = sum(is_contact)
+          nfound = int(np.sum(np.array(is_contact)))
 
           # if duplicate sensor
-          cid = mx.tile(cid, (nsensor,))
-          nfound = mx.tile(nfound, (nsensor,))
+          cid = np.tile(cid, (nsensor,))
+          nfound = mx.array(np.tile(nfound, (nsensor,)))
           flip = mx.ones((cid.size, 3))
         elif objtype == ObjType.GEOM or reftype == ObjType.GEOM:
           sensorid1 = objid[idx_ds]
@@ -625,7 +687,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
 
           # matched and reduced contact ids
           cid = _vmap(lambda x: _reduce(reduce, x))(match)[:, :num]
-          cid = cid.reshape(-1)
+          cid = np.array(cid.reshape(-1), dtype=np.int32)
 
           # flip direction for force, torque, normal, tangent
           if reftype == ObjType.UNKNOWN:  # geom1
@@ -675,7 +737,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
           slot.append(flip[:, 2, None] * d._impl.contact.frame[cid, 1])
 
         found = mx.tile(mx.arange(num), nsensor) < mx.repeat(nfound, num)
-        sensors.append((found[:, None] * mx.hstack(slot)).reshape(-1))
+        sensors.append((found[:, None] * mx.concatenate(slot, axis=1)).reshape(-1))
         adrs.append(
             (adr[idx_ds][:, None] + np.arange(num * size)[None]).reshape(-1)
         )
@@ -686,9 +748,9 @@ def sensor_acc(m: Model, d: Data) -> Data:
       @_vmap
       def _accelerometer(cvel, cacc, diff, rot):
         ang = rot.T @ cvel[:3]
-        lin = rot.T @ (cvel[3:] - mx.cross(diff, cvel[:3]))
-        acc = rot.T @ (cacc[3:] - mx.cross(diff, cacc[:3]))
-        correction = mx.cross(ang, lin)
+        lin = rot.T @ (cvel[3:] - _cross(diff, cvel[:3]))
+        acc = rot.T @ (cacc[3:] - _cross(diff, cacc[:3]))
+        correction = _cross(ang, lin)
         return acc + correction
 
       bodyid = m.site_bodyid[objid]
@@ -714,7 +776,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
       site_xmat = d.site_xmat[objid]
       dif = d.site_xpos[objid] - d.subtree_com[rootid]
       sensor = _vmap(
-          lambda vec, dif, rot: rot.T @ (vec[:3] - mx.cross(dif, vec[3:]))
+          lambda vec, dif, rot: rot.T @ (vec[:3] - _cross(dif, vec[3:]))
       )(cfrc_int, dif, site_xmat)
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.ACTUATORFRC:
@@ -746,9 +808,9 @@ def sensor_acc(m: Model, d: Data) -> Data:
           @_vmap
           def _framelinacc(cvel, cacc, offset):
             ang = cvel[:3]
-            lin = cvel[3:] - mx.cross(offset, cvel[:3])
-            acc = cacc[3:] - mx.cross(offset, cacc[:3])
-            correction = mx.cross(ang, lin)
+            lin = cvel[3:] - _cross(offset, cvel[:3])
+            acc = cacc[3:] - _cross(offset, cacc[:3])
+            correction = _cross(ang, lin)
             return acc + correction
 
           cvel = d.cvel[bodyid]
@@ -775,8 +837,8 @@ def sensor_acc(m: Model, d: Data) -> Data:
   if not adrs:
     return d
 
-  sensordata = d.sensordata.at[np.concatenate(adrs)].set(
-      mx.concatenate(sensors)
+  sensordata = _set_at_indices(
+      d.sensordata, np.concatenate(adrs), mx.concatenate(sensors)
   )
 
   return d.replace(sensordata=sensordata)
