@@ -307,10 +307,10 @@ def _efc_equality_joint(m: Model, d: Data) -> Optional[_Efc]:
   eq_solimp_s = m.eq_solimp[eq_id]
   eq_active_s = d.eq_active[eq_id]
 
-  dofadr1 = m.jnt_dofadr[eq_obj1id_s]
-  dofadr2 = m.jnt_dofadr[eq_obj2id_s]
-  qposadr1 = m.jnt_qposadr[eq_obj1id_s]
-  qposadr2 = m.jnt_qposadr[eq_obj2id_s]
+  dofadr1 = int(m.jnt_dofadr[eq_obj1id_s])
+  dofadr2 = int(m.jnt_dofadr[eq_obj2id_s])
+  qposadr1 = int(m.jnt_qposadr[eq_obj1id_s])
+  qposadr2 = int(m.jnt_qposadr[eq_obj2id_s])
 
   results = [
       _single_row(
@@ -328,10 +328,8 @@ def _efc_equality_joint(m: Model, d: Data) -> Optional[_Efc]:
 
 def _efc_equality_tendon(m: Model, d: Data) -> Optional[_Efc]:
   """Calculates constraint rows for tendon equality constraints."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError(
-        '_efc_equality_tendon requires MLX backend implementation.'
-    )
+  if False:  # MLX port: single backend, no impl check
+    pass  # MLX port: backend check removed
 
   eq_id = np.nonzero(m.eq_type == EqType.TENDON)[0]
 
@@ -357,7 +355,7 @@ def _efc_equality_tendon(m: Model, d: Data) -> Optional[_Efc]:
     return _tree_map(lambda x: x * active_i, efc)
 
   inv1, inv2 = m.tendon_invweight0[obj1id], m.tendon_invweight0[obj2id]
-  jac1, jac2 = d._impl.ten_J[obj1id], d._impl.ten_J[obj2id]
+  jac1, jac2 = (d._impl or d).ten_J[obj1id], (d._impl or d).ten_J[obj2id]
   pos1 = d.ten_length[obj1id] - m.tendon_length0[obj1id]
   pos2 = d.ten_length[obj2id] - m.tendon_length0[obj2id]
   invweight = inv1 + inv2 * (obj2id > -1)
@@ -376,11 +374,11 @@ def _efc_equality_tendon(m: Model, d: Data) -> Optional[_Efc]:
 
 def _efc_friction(m: Model, d: Data) -> Optional[_Efc]:
   """Calculates constraint rows for dof frictionloss."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('_efc_friction requires MLX backend implementation.')
+  if False:  # MLX port: single backend, no impl check
+    pass  # MLX port: backend check removed
 
-  dof_id = np.nonzero(m._impl.dof_hasfrictionloss)[0]
-  tendon_id = np.nonzero(m._impl.tendon_hasfrictionloss)[0]
+  dof_id = np.nonzero((np.array(m.dof_frictionloss) > 0))[0]
+  tendon_id = np.nonzero((np.array(m.tendon_frictionloss) > 0))[0]
 
   size = dof_id.size + tendon_id.size
   if (m.opt.disableflags & DisableBit.FRICTIONLOSS) or (size == 0):
@@ -395,7 +393,7 @@ def _efc_friction(m: Model, d: Data) -> Optional[_Efc]:
   si_dof = m.dof_solimp[dof_id]
 
   # Build tendon args
-  j_ten = d._impl.ten_J[tendon_id]
+  j_ten = (d._impl or d).ten_J[tendon_id]
   fl_ten = m.tendon_frictionloss[tendon_id]
   iw_ten = m.tendon_invweight0[tendon_id]
   sr_ten = m.tendon_solref_fri[tendon_id]
@@ -449,8 +447,8 @@ def _efc_limit_ball(m: Model, d: Data) -> Optional[_Efc]:
         j * active, pos * active, pos, invweight, solref, solimp, jnt_margin, z
     )
 
-  qposadr_s = m.jnt_qposadr[jnt_id]
-  dofadr_s = m.jnt_dofadr[jnt_id]
+  qposadr_s = int(m.jnt_qposadr[jnt_id])
+  dofadr_s = int(m.jnt_dofadr[jnt_id])
   range_s = m.jnt_range[jnt_id]
   margin_s = m.jnt_margin[jnt_id]
   solref_s = m.jnt_solref[jnt_id]
@@ -493,8 +491,8 @@ def _efc_limit_slide_hinge(m: Model, d: Data) -> Optional[_Efc]:
         j * active, pos * active, pos, invweight, solref, solimp, jnt_margin, z
     )
 
-  qposadr_s = m.jnt_qposadr[jnt_id]
-  dofadr_s = m.jnt_dofadr[jnt_id]
+  qposadr_s = int(m.jnt_qposadr[jnt_id])
+  dofadr_s = int(m.jnt_dofadr[jnt_id])
   range_s = m.jnt_range[jnt_id]
   margin_s = m.jnt_margin[jnt_id]
   solref_s = m.jnt_solref[jnt_id]
@@ -514,8 +512,8 @@ def _efc_limit_slide_hinge(m: Model, d: Data) -> Optional[_Efc]:
 
 def _efc_limit_tendon(m: Model, d: Data) -> Optional[_Efc]:
   """Calculates constraint rows for tendon limits."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('_efc_limit_tendon requires MLX backend implementation.')
+  if False:  # MLX port: single backend, no impl check
+    pass  # MLX port: backend check removed
 
   tendon_id = np.nonzero(m.tendon_limited)[0]
 
@@ -523,7 +521,7 @@ def _efc_limit_tendon(m: Model, d: Data) -> Optional[_Efc]:
     return None
 
   length = d.ten_length[tendon_id]
-  j = d._impl.ten_J[tendon_id]
+  j = (d._impl or d).ten_J[tendon_id]
   range_ = m.tendon_range[tendon_id]
   margin = m.tendon_margin[tendon_id]
   invweight = m.tendon_invweight0[tendon_id]
@@ -551,12 +549,10 @@ def _efc_limit_tendon(m: Model, d: Data) -> Optional[_Efc]:
 
 def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
   """Calculates constraint rows for frictionless contacts."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError(
-        '_efc_contact_frictionless requires MLX backend implementation.'
-    )
+  if False:  # MLX port: single backend, no impl check
+    pass  # MLX port: backend check removed
 
-  con_id = np.nonzero(d._impl.contact.dim == 1)[0]
+  con_id = np.nonzero((d._impl or d).contact.dim == 1)[0]
 
   if con_id.size == 0:
     return None
@@ -568,7 +564,7 @@ def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
     body2 = mx.array(m.geom_bodyid)[c_geom[1]]
     jac1p, _ = support.jac(m, d, c_pos, int(body1.item()))
     jac2p, _ = support.jac(m, d, c_pos, int(body2.item()))
-    frame_3x3 = mx.reshape(c_frame, (3, 3))
+    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
     j = (frame_3x3 @ (jac2p - jac1p).T)[0]
     invweight = m.body_invweight0[int(body1.item()), 0] + m.body_invweight0[int(body2.item()), 0]
 
@@ -583,7 +579,7 @@ def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
         mx.zeros_like(pos),
     )
 
-  contact = d._impl.contact
+  contact = (d._impl or d).contact
   results = [
       _single_row(
           contact.dist[i], contact.includemargin[i], contact.geom[i],
@@ -599,15 +595,12 @@ def _efc_contact_frictionless(m: Model, d: Data) -> Optional[_Efc]:
 def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
   """Calculates constraint rows for frictional pyramidal contacts."""
   if (
-      not isinstance(m._impl, ModelMLX)
-      or not isinstance(d._impl, DataMLX)
+      False  # MLX port: single backend
       or not isinstance(m.opt._impl, OptionMLX)
   ):
-    raise ValueError(
-        '_efc_contact_pyramidal requires MLX backend implementation.'
-    )
+    pass  # MLX port: backend check removed
 
-  con_id = np.nonzero(d._impl.contact.dim == condim)[0]
+  con_id = np.nonzero((d._impl or d).contact.dim == condim)[0]
 
   if con_id.size == 0:
     return None
@@ -615,11 +608,11 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
   def _single_row(c_dist, c_includemargin, c_geom, c_pos, c_frame, c_friction, c_solref, c_solimp):
     pos = c_dist - c_includemargin
     active = pos < 0
-    body1 = mx.array(m.geom_bodyid)[c_geom[0]]
-    body2 = mx.array(m.geom_bodyid)[c_geom[1]]
-    jac1p, jac1r = support.jac(m, d, c_pos, int(body1.item()))
-    jac2p, jac2r = support.jac(m, d, c_pos, int(body2.item()))
-    frame_3x3 = mx.reshape(c_frame, (3, 3))
+    body1 = int(np.array(m.geom_bodyid)[int(c_geom[0])])
+    body2 = int(np.array(m.geom_bodyid)[int(c_geom[1])])
+    jac1p, jac1r = support.jac(m, d, c_pos, body1)
+    jac2p, jac2r = support.jac(m, d, c_pos, body2)
+    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
     diff = frame_3x3 @ (jac2p - jac1p).T
     if condim > 3:
       diff = mx.concatenate([diff, (frame_3x3 @ (jac2r - jac1r).T)], axis=0)
@@ -649,7 +642,7 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
         mx.zeros_like(pos),
     )
 
-  contact = d._impl.contact
+  contact = (d._impl or d).contact
   results = [
       _single_row(
           contact.dist[i], contact.includemargin[i], contact.geom[i],
@@ -667,15 +660,12 @@ def _efc_contact_pyramidal(m: Model, d: Data, condim: int) -> Optional[_Efc]:
 def _efc_contact_elliptic(m: Model, d: Data, condim: int) -> Optional[_Efc]:
   """Calculates constraint rows for frictional elliptic contacts."""
   if (
-      not isinstance(m._impl, ModelMLX)
-      or not isinstance(d._impl, DataMLX)
+      False  # MLX port: single backend
       or not isinstance(m.opt._impl, OptionMLX)
   ):
-    raise ValueError(
-        '_efc_contact_elliptic requires MLX backend implementation.'
-    )
+    pass  # MLX port: backend check removed
 
-  con_id = np.nonzero(d._impl.contact.dim == condim)[0]
+  con_id = np.nonzero((d._impl or d).contact.dim == condim)[0]
 
   if con_id.size == 0:
     return None
@@ -688,7 +678,7 @@ def _efc_contact_elliptic(m: Model, d: Data, condim: int) -> Optional[_Efc]:
     obj2id = mx.array(m.geom_bodyid)[c_geom[1]]
     jac1p, jac1r = support.jac(m, d, c_pos, int(obj1id.item()))
     jac2p, jac2r = support.jac(m, d, c_pos, int(obj2id.item()))
-    frame_3x3 = mx.reshape(c_frame, (3, 3))
+    frame_3x3 = mx.reshape(mx.array(c_frame), (3, 3))
     j = frame_3x3 @ (jac2p - jac1p).T
     if condim > 3:
       j = mx.concatenate([j, (frame_3x3 @ (jac2r - jac1r).T)[: condim - 3]])
@@ -715,7 +705,7 @@ def _efc_contact_elliptic(m: Model, d: Data, condim: int) -> Optional[_Efc]:
         mx.zeros_like(pos),
     )
 
-  contact = d._impl.contact
+  contact = (d._impl or d).contact
   results = [
       _single_row(
           contact.dist[i], contact.includemargin[i], contact.geom[i],
@@ -764,13 +754,13 @@ def make_efc_type(
 
   if not m.opt.disableflags & DisableBit.FRICTIONLOSS:
     nf_dof = (
-        m._impl.dof_hasfrictionloss.sum()
+        (np.array(m.dof_frictionloss) > 0).sum()
         if isinstance(m, Model) and isinstance(m._impl, ModelMLX)
         else (m.dof_frictionloss > 0).sum()
     )
     efc_types += [ConstraintType.FRICTION_DOF] * int(nf_dof)
     nf_tendon = (
-        m._impl.tendon_hasfrictionloss.sum()
+        (np.array(m.tendon_frictionloss) > 0).sum()
         if isinstance(m, Model) and isinstance(m._impl, ModelMLX)
         else (m.tendon_frictionloss > 0).sum()
     )

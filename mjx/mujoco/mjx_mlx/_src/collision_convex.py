@@ -63,9 +63,7 @@ def collider(ncon: int):
     def collide(
         m: Model, d: Data, key: FunctionKey, geom: mx.array
     ) -> Collision:
-      if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-        raise ValueError('collider requires MLX backend implementation.')
-
+      # MLX port: backend check removed (single backend)
       g1, g2 = geom.T[0], geom.T[1]
       n_pairs = g1.shape[0] if hasattr(g1, 'shape') and len(g1.shape) > 0 else 1
 
@@ -88,7 +86,7 @@ def collider(ncon: int):
             infos[side] = mesh.box(infos[side])
           elif key.types[side] == GeomType.MESH:
             c = infos[side]
-            cm = m._impl.mesh_convex[key.data_ids[side]]
+            cm = (m._impl or m).mesh_convex[key.data_ids[side]]
             infos[side] = ConvexInfo(**{
                 'pos': c.pos, 'mat': c.mat, 'size': c.size,
                 'vert': cm.vert, 'face': cm.face,

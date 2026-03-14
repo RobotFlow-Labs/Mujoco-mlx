@@ -50,7 +50,7 @@ def _body_tree_depths(m: Model) -> np.ndarray:
   """Compute depth of each body in the kinematic tree."""
   depths = np.zeros(m.nbody, dtype=np.int32)
   for i in range(1, m.nbody):
-    depths[i] = depths[m.body_parentid[i]] + 1
+    depths[i] = depths[int(m.body_parentid[i])] + 1
   return depths
 
 
@@ -100,7 +100,7 @@ def make_m(
     j = i
     while j > -1:
       ij.append((i, j))
-      j = m.dof_parentid[j]
+      j = int(m.dof_parentid[j])
 
   i_idx, j_idx = (mx.array(x) for x in zip(*ij))
 
@@ -140,19 +140,19 @@ def full_m(m: Model, d: Data) -> mx.array:
   """Reconstitute dense mass matrix from qM."""
 
   if not is_sparse(m):
-    return d._impl.qM
+    return (d._impl or d).qM
 
   ij = []
   for i in range(m.nv):
     j = i
     while j > -1:
       ij.append((i, j))
-      j = m.dof_parentid[j]
+      j = int(m.dof_parentid[j])
 
   i_arr, j_arr = zip(*ij)
 
   mat_np = np.zeros((m.nv, m.nv))
-  qM_np = np.array(d._impl.qM)
+  qM_np = np.array((d._impl or d).qM)
   for k, (ii, jj) in enumerate(ij):
     mat_np[ii, jj] = qM_np[k]
   mat = mx.array(mat_np)
@@ -167,16 +167,16 @@ def mul_m(m: Model, d: Data, vec: mx.array) -> mx.array:
   """Multiply vector by inertia matrix."""
 
   if not is_sparse(m):
-    return d._impl.qM @ vec
+    return (d._impl or d).qM @ vec
 
-  diag_mul = d._impl.qM[mx.array(m.dof_Madr)] * vec
+  diag_mul = (d._impl or d).qM[mx.array(m.dof_Madr)] * vec
 
   is_, js, madr_ijs = [], [], []
   for i in range(m.nv):
-    madr_ij, j = m.dof_Madr[i], i
+    madr_ij, j = int(m.dof_Madr[i]), i
 
     while True:
-      madr_ij, j = madr_ij + 1, m.dof_parentid[j]
+      madr_ij, j = madr_ij + 1, int(m.dof_parentid[j])
       if j == -1:
         break
       is_, js, madr_ijs = is_ + [i], js + [j], madr_ijs + [madr_ij]
@@ -190,7 +190,7 @@ def mul_m(m: Model, d: Data, vec: mx.array) -> mx.array:
 
   # Build output with scatter-add approach via numpy
   out_np = np.array(diag_mul)
-  qM_np = np.array(d._impl.qM)
+  qM_np = np.array((d._impl or d).qM)
   vec_np = np.array(vec)
 
   for k in range(len(is_)):
@@ -213,7 +213,7 @@ def _body_tree_scan_mask(m: Model, body_id) -> mx.array:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth and mask_np[b] > 0:
-        mask_np[m.body_parentid[b]] += mask_np[b]
+        mask_np[int(m.body_parentid[b])] += mask_np[b]
 
   # Now mask[b] > 0 for body_id and all its ancestors
   # But we want body_id and all its descendants
@@ -222,12 +222,12 @@ def _body_tree_scan_mask(m: Model, body_id) -> mx.array:
   desc_mask[int(body_id)] = 1.0
   for depth in range(max_depth + 1):
     for b in range(m.nbody):
-      if depths[b] == depth and m.body_parentid[b] >= 0:
-        if desc_mask[m.body_parentid[b]] > 0:
+      if depths[b] == depth and int(m.body_parentid[b]) >= 0:
+        if desc_mask[int(m.body_parentid[b])] > 0:
           desc_mask[b] = 1.0
 
   # Map to dof mask
-  dof_mask = np.array([desc_mask[m.dof_bodyid[dof]] > 0 for dof in range(m.nv)])
+  dof_mask = np.array([desc_mask[int(m.dof_bodyid[dof])] > 0 for dof in range(m.nv)])
   return mx.array(dof_mask.astype(np.float32))
 
 
@@ -247,10 +247,10 @@ def jac(
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        mask_np[m.body_parentid[b]] += mask_np[b]
+        mask_np[int(m.body_parentid[b])] += mask_np[b]
 
   dof_mask = mx.array(
-      np.array([mask_np[m.dof_bodyid[dof]] > 0 for dof in range(m.nv)],
+      np.array([mask_np[int(m.dof_bodyid[dof])] > 0 for dof in range(m.nv)],
                dtype=np.float32)
   )
 
@@ -286,10 +286,10 @@ def jac_dot(
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        mask_np[m.body_parentid[b]] += mask_np[b]
+        mask_np[int(m.body_parentid[b])] += mask_np[b]
 
   dof_mask_np = np.array(
-      [mask_np[m.dof_bodyid[dof]] > 0 for dof in range(m.nv)],
+      [mask_np[int(m.dof_bodyid[dof])] > 0 for dof in range(m.nv)],
       dtype=np.float32,
   )
   dof_mask = mx.array(dof_mask_np)
@@ -313,7 +313,7 @@ def jac_dot(
   cdof_dot_list = []
   for i in range(m.nv):
     if is_quat[i]:
-      cdof_dot_i = mjx_math.motion_cross(d.cvel[m.dof_bodyid[i]], cdof[i])
+      cdof_dot_i = mjx_math.motion_cross(d.cvel[int(m.dof_bodyid[i])], cdof[i])
     else:
       cdof_dot_i = cdof_dot[i]
     cdof_dot_list.append(cdof_dot_i)
@@ -482,22 +482,22 @@ def contact_force(
     m: Model, d: Data, contact_id: int, to_world_frame: bool = False
 ) -> mx.array:
   """Extract 6D force:torque for one contact, in contact frame by default."""
-  efc_address = d._impl.contact.efc_address[contact_id]
-  condim = d._impl.contact.dim[contact_id]
+  efc_address = (d._impl or d).contact.efc_address[contact_id]
+  condim = (d._impl or d).contact.dim[contact_id]
   if m.opt.cone == ConeType.PYRAMIDAL:
     force = _decode_pyramid(
-        d._impl.efc_force[efc_address:],
-        d._impl.contact.friction[contact_id],
+        (d._impl or d).efc_force[efc_address:],
+        (d._impl or d).contact.friction[contact_id],
         condim,
     )
   elif m.opt.cone == ConeType.ELLIPTIC:
-    force = d._impl.efc_force[efc_address : efc_address + condim]
+    force = (d._impl or d).efc_force[efc_address : efc_address + condim]
     force = mx.concatenate([force, mx.zeros((6 - condim,))])
   else:
     raise ValueError(f'Unknown cone type: {m.opt.cone}')
 
   if to_world_frame:
-    force = (force.reshape((-1, 3)) @ d._impl.contact.frame[contact_id]).reshape(-1)
+    force = (force.reshape((-1, 3)) @ (d._impl or d).contact.frame[contact_id]).reshape(-1)
 
   return force * (efc_address >= 0)
 
@@ -506,29 +506,29 @@ def contact_force_dim(
     m: Model, d: Data, dim: int
 ) -> Tuple[mx.array, np.ndarray]:
   """Extract 6D force:torque for contacts with dimension dim."""
-  idx_dim = (d._impl.contact.efc_address >= 0) & (d._impl.contact.dim == dim)
+  idx_dim = ((d._impl or d).contact.efc_address >= 0) & ((d._impl or d).contact.dim == dim)
 
   if m.opt.cone == ConeType.PYRAMIDAL:
     efc_width = 1 if dim == 1 else 2 * (dim - 1)
     efc_address = (
-        d._impl.contact.efc_address[idx_dim, None]
+        (d._impl or d).contact.efc_address[idx_dim, None]
         + np.arange(efc_width)[None]
     )
-    efc_force = d._impl.efc_force[efc_address]
+    efc_force = (d._impl or d).efc_force[efc_address]
     # vmap _decode_pyramid -> loop
     forces = []
     n = efc_force.shape[0]
     for i in range(n):
       forces.append(
-          _decode_pyramid(efc_force[i], d._impl.contact.friction[idx_dim][i], dim)
+          _decode_pyramid(efc_force[i], (d._impl or d).contact.friction[idx_dim][i], dim)
       )
     force = mx.stack(forces) if forces else mx.zeros((0, 6))
   elif m.opt.cone == ConeType.ELLIPTIC:
     efc_address = (
-        d._impl.contact.efc_address[idx_dim, None]
+        (d._impl or d).contact.efc_address[idx_dim, None]
         + np.arange(dim)[None]
     )
-    force = d._impl.efc_force[efc_address]
+    force = (d._impl or d).efc_force[efc_address]
     pad = mx.zeros((force.shape[0], 6 - dim))
     force = mx.concatenate([force, pad], axis=1)
   else:

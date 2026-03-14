@@ -296,8 +296,8 @@ def flat(
         m.actuator_biastype[ids_u],
         m.actuator_gaintype[ids_u],
         m.actuator_dyntype[ids_u],
-        m.actuator_trntype[ids_u],
-        m.jnt_type[ids_j],
+        int(m.actuator_trntype[ids_u]),
+        int(m.jnt_type[ids_j]),
         m.actuator_trnid[ids_u, 1] == -1,  # key by refsite being present
     )
 
@@ -307,17 +307,17 @@ def flat(
         'a': m.actuator_actadr[i],
         'j': (
             m.actuator_trnid[i, 0]
-            if m.actuator_trntype[i] in (TrnType.JOINT, TrnType.JOINTINPARENT)
+            if int(m.actuator_trntype[i]) in (TrnType.JOINT, TrnType.JOINTINPARENT)
             else -1
         ),
         's': (
-            m.actuator_trnid[i]
-            if m.actuator_trntype[i] == TrnType.SITE
+            int(m.actuator_trnid[i])
+            if int(m.actuator_trntype[i]) == TrnType.SITE
             else np.array([-1, -1])
         ),
     }
     v, q = np.array([-1]), np.array([-1])
-    if m.actuator_trntype[i] in (TrnType.JOINT, TrnType.JOINTINPARENT):
+    if int(m.actuator_trntype[i]) in (TrnType.JOINT, TrnType.JOINTINPARENT):
       # v/q are associated with the joint transmissions only
       v = np.nonzero(m.dof_jntid == typ_ids['j'])[0]
       q = np.nonzero(_q_jointid(m) == typ_ids['j'])[0]
@@ -455,7 +455,7 @@ def body_tree(
   for body_id in range(m.nbody):
     parent_id = -1
     if body_id > 0:
-      parent_id = m.body_parentid[body_id]
+      parent_id = int(m.body_parentid[body_id])
       depths[body_id] = 1 + depths[parent_id]
 
     # create grouping key: depth, carry, args
@@ -490,7 +490,7 @@ def body_tree(
     if body_ids.size == 0:
       continue
     # find any key which has a body id that is a parent of these body_ids
-    pids = m.body_parentid[body_ids]
+    pids = int(m.body_parentid[body_ids])
     parents = {k for k, v in key_body_ids.items() if np.isin(v, pids).any()}
     key_parents[key] = list(sorted(parents))
 

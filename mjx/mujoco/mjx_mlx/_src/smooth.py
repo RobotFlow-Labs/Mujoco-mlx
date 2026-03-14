@@ -54,21 +54,21 @@ def _body_tree_depths(m: Model) -> np.ndarray:
   """Compute depth of each body in the kinematic tree."""
   depths = np.zeros(m.nbody, dtype=np.int32)
   for i in range(1, m.nbody):
-    depths[i] = depths[m.body_parentid[i]] + 1
+    depths[i] = depths[int(m.body_parentid[i])] + 1
   return depths
 
 
 def _body_joints(m: Model, body_id: int):
   """Return joint indices for a body."""
-  adr = m.body_jntadr[body_id]
-  num = m.body_jntnum[body_id]
+  adr = int(m.body_jntadr[body_id])
+  num = int(m.body_jntnum[body_id])
   return list(range(adr, adr + num))
 
 
 def _body_dofs(m: Model, body_id: int):
   """Return dof indices for a body."""
-  adr = m.body_dofadr[body_id]
-  num = m.body_dofnum[body_id]
+  adr = int(m.body_dofadr[body_id])
+  num = int(m.body_dofnum[body_id])
   return list(range(adr, adr + num))
 
 
@@ -134,7 +134,7 @@ def kinematics(m: Model, d: Data) -> Data:
       quat = mx.array(m.body_quat[body_id])
 
       if body_id > 0:
-        parent_id = m.body_parentid[body_id]
+        parent_id = int(m.body_parentid[body_id])
         parent_pos = xpos_list[parent_id]
         parent_quat = xquat_list[parent_id]
         pos = parent_pos + mjx_math.rotate(pos, parent_quat)
@@ -147,10 +147,10 @@ def kinematics(m: Model, d: Data) -> Data:
       axes = []
 
       for j in jnts:
-        jnt_typ = m.jnt_type[j]
+        jnt_typ = int(m.jnt_type[j])
         jnt_pos_j = mx.array(m.jnt_pos[j])
         jnt_axis_j = mx.array(m.jnt_axis[j])
-        qpos_i = m.jnt_qposadr[j]
+        qpos_i = int(int(m.jnt_qposadr[j]))
 
         if jnt_typ == JointType.FREE:
           anchor = qpos[qpos_i : qpos_i + 3]
@@ -248,7 +248,7 @@ def kinematics(m: Model, d: Data) -> Data:
     gxpos_list = []
     gxmat_list = []
     for i in range(m.ngeom):
-      bid = m.geom_bodyid[i]
+      bid = int(m.geom_bodyid[i])
       p, mat = support.local_to_global(
           xpos[bid], xquat[bid],
           mx.array(m.geom_pos[i]), mx.array(m.geom_quat[i]),
@@ -264,7 +264,7 @@ def kinematics(m: Model, d: Data) -> Data:
     sxpos_list = []
     sxmat_list = []
     for i in range(m.nsite):
-      bid = m.site_bodyid[i]
+      bid = int(m.site_bodyid[i])
       p, mat = support.local_to_global(
           xpos[bid], xquat[bid],
           mx.array(m.site_pos[i]), mx.array(m.site_quat[i]),
@@ -296,7 +296,7 @@ def com_pos(m: Model, d: Data) -> Data:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        parent = m.body_parentid[b]
+        parent = int(m.body_parentid[b])
         pos_arr[parent] += pos_arr[b]
         mass_arr[parent] += mass_arr[b]
 
@@ -345,7 +345,7 @@ def com_pos(m: Model, d: Data) -> Data:
     rc = root_com[body_id]
 
     for j in jnts:
-      jnt_typ = m.jnt_type[j]
+      jnt_typ = int(m.jnt_type[j])
       offset = rc - d.xanchor[j]
 
       if jnt_typ == JointType.FREE:
@@ -406,20 +406,20 @@ def camlight(m: Model, d: Data) -> Data:
   cam_xmat_list = []
   for i in range(m.ncam):
     p, mat = support.local_to_global(
-        d.xpos[m.cam_bodyid[i]], d.xquat[m.cam_bodyid[i]],
+        d.xpos[int(m.cam_bodyid[i])], d.xquat[int(m.cam_bodyid[i])],
         mx.array(m.cam_pos[i]), mx.array(m.cam_quat[i]),
     )
     mode = cam_mode[i]
     if mode == CamLightType.TRACK:
       mat = mx.array(m.cam_mat0[i])
-      p = d.xpos[m.cam_bodyid[i]] + mx.array(m.cam_pos0[i])
+      p = d.xpos[int(m.cam_bodyid[i])] + mx.array(m.cam_pos0[i])
     elif mode == CamLightType.TRACKCOM:
       mat = mx.array(m.cam_mat0[i])
-      p = d.subtree_com[m.cam_bodyid[i]] + mx.array(m.cam_poscom0[i])
+      p = d.subtree_com[int(m.cam_bodyid[i])] + mx.array(m.cam_poscom0[i])
     elif mode in (CamLightType.TARGETBODY, CamLightType.TARGETBODYCOM):
-      target_pos = d.xpos[m.cam_targetbodyid[i]]
+      target_pos = d.xpos[int(m.cam_targetbodyid[i])]
       if mode == CamLightType.TARGETBODYCOM:
-        target_pos = d.subtree_com[m.cam_targetbodyid[i]]
+        target_pos = d.subtree_com[int(m.cam_targetbodyid[i])]
       mat_3 = mjx_math.normalize(p - target_pos)
       mat_1 = mjx_math.normalize(
           mjx_math._cross(mx.array([0.0, 0.0, 1.0]), mat_3)
@@ -444,7 +444,7 @@ def camlight(m: Model, d: Data) -> Data:
 
 def crb(m: Model, d: Data) -> Data:
   """Runs composite rigid body inertia algorithm."""
-  crb_body = np.array(d._impl.cinert).copy()
+  crb_body = np.array((d._impl or d).cinert).copy()
 
   depths = _body_tree_depths(m)
   max_depth = int(depths.max()) if m.nbody > 0 else 0
@@ -452,7 +452,7 @@ def crb(m: Model, d: Data) -> Data:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        parent = m.body_parentid[b]
+        parent = int(m.body_parentid[b])
         crb_body[parent] += crb_body[b]
 
   crb_body[0] = 0.0
@@ -463,7 +463,7 @@ def crb(m: Model, d: Data) -> Data:
   crb_cdof_list = []
   for dof in range(m.nv):
     crb_cdof_list.append(
-        mjx_math.inert_mul(crb_body_mx[m.dof_bodyid[dof]], d.cdof[dof])
+        mjx_math.inert_mul(crb_body_mx[int(m.dof_bodyid[dof])], d.cdof[dof])
     )
   crb_cdof = mx.stack(crb_cdof_list) if crb_cdof_list else mx.zeros((0, 6))
 
@@ -481,7 +481,7 @@ def factor_m(m: Model, d: Data) -> Data:
   """Gets factorization of inertia-like matrix M, assumed spd."""
 
   if not support.is_sparse(m):
-    qM_np = np.array(d._impl.qM)
+    qM_np = np.array((d._impl or d).qM)
     qh = sp_linalg.cholesky(qM_np, lower=True)
     d = _tree_replace(d, {'_impl.qLD': mx.array(qh)})
     return d
@@ -490,17 +490,17 @@ def factor_m(m: Model, d: Data) -> Data:
   depth = []
   for i in range(m.nv):
     depth.append(
-        depth[m.dof_parentid[i]] + 1 if m.dof_parentid[i] != -1 else 0
+        depth[int(m.dof_parentid[i])] + 1 if int(m.dof_parentid[i]) != -1 else 0
     )
 
   updates = {}
   madr_ds = []
   for i in range(m.nv):
-    madr_d = madr_ij = m.dof_Madr[i]
+    madr_d = madr_ij = int(m.dof_Madr[i])
     j = i
     while True:
       madr_ds.append(madr_d)
-      madr_ij, j = madr_ij + 1, m.dof_parentid[j]
+      madr_ij, j = madr_ij + 1, int(m.dof_parentid[j])
       if j == -1:
         break
       out_beg, out_end = tuple(m.dof_Madr[j : j + 2])
@@ -508,7 +508,7 @@ def factor_m(m: Model, d: Data) -> Data:
           (out_beg, out_end, madr_d, madr_ij)
       )
 
-  qld = np.array(d._impl.qM).astype(np.float64).copy()
+  qld = np.array((d._impl or d).qM).astype(np.float64).copy()
 
   for _, upd_list in sorted(updates.items(), reverse=True):
     for b, e, madr_d, madr_ij in upd_list:
@@ -539,7 +539,7 @@ def solve_m(m: Model, d: Data, x: mx.array) -> mx.array:
   """Computes sparse backsubstitution: x = inv(L'*D*L)*y."""
 
   if not support.is_sparse(m):
-    qLD_np = np.array(d._impl.qLD)
+    qLD_np = np.array((d._impl or d).qLD)
     x_np = np.array(x)
     result = sp_linalg.cho_solve((qLD_np, True), x_np)
     return mx.array(result)
@@ -547,21 +547,21 @@ def solve_m(m: Model, d: Data, x: mx.array) -> mx.array:
   depth = []
   for i in range(m.nv):
     depth.append(
-        depth[m.dof_parentid[i]] + 1 if m.dof_parentid[i] != -1 else 0
+        depth[int(m.dof_parentid[i])] + 1 if int(m.dof_parentid[i]) != -1 else 0
     )
 
   updates_i, updates_j = {}, {}
   for i in range(m.nv):
-    madr_ij, j = m.dof_Madr[i], i
+    madr_ij, j = int(m.dof_Madr[i]), i
     while True:
-      madr_ij, j = madr_ij + 1, m.dof_parentid[j]
+      madr_ij, j = madr_ij + 1, int(m.dof_parentid[j])
       if j == -1:
         break
       updates_i.setdefault(depth[i], []).append((i, madr_ij, j))
       updates_j.setdefault(depth[j], []).append((j, madr_ij, i))
 
   x_np = np.array(x).astype(np.float64).copy()
-  qLD_np = np.array(d._impl.qLD).astype(np.float64)
+  qLD_np = np.array((d._impl or d).qLD).astype(np.float64)
 
   # x <- inv(L') * x
   for _, vals in sorted(updates_j.items(), reverse=True):
@@ -569,7 +569,7 @@ def solve_m(m: Model, d: Data, x: mx.array) -> mx.array:
       x_np[j] += -qLD_np[madr_ij] * x_np[i]
 
   # x <- inv(D) * x
-  qLDiagInv_np = np.array(d._impl.qLDiagInv).astype(np.float64)
+  qLDiagInv_np = np.array((d._impl or d).qLDiagInv).astype(np.float64)
   x_np *= qLDiagInv_np
 
   # x <- inv(L) * x
@@ -599,19 +599,19 @@ def com_vel(m: Model, d: Data) -> Data:
       if depths[body_id] != depth:
         continue
 
-      if body_id == 0 or m.body_parentid[body_id] == -1:
+      if body_id == 0 or int(m.body_parentid[body_id]) == -1:
         cvel = mx.zeros(6)
       else:
-        cvel = cvel_list[m.body_parentid[body_id]]
+        cvel = cvel_list[int(m.body_parentid[body_id])]
         if cvel is None:
           cvel = mx.zeros(6)
 
       jnts = _body_joints(m, body_id)
 
       for j in jnts:
-        jnt_typ = m.jnt_type[j]
+        jnt_typ = int(m.jnt_type[j])
         dof_width = JointType(jnt_typ).dof_width()
-        dof_adr = m.jnt_dofadr[j]
+        dof_adr = int(m.jnt_dofadr[j])
 
         if jnt_typ == JointType.FREE:
           # Translation dofs (first 3): zero cdof_dot
@@ -659,7 +659,7 @@ def subtree_vel(m: Model, d: Data) -> Data:
     cvel_i = d.cvel[i]
     ang, lin = cvel_i[:3], cvel_i[3:]
     xipos_i = d.xipos[i]
-    subtree_com_root_i = d.subtree_com[m.body_rootid[i]]
+    subtree_com_root_i = d.subtree_com[int(m.body_rootid[i])]
     mass_i = float(m.body_mass[i])
     inertia_i = mx.array(m.body_inertia[i])
     ximat_i = d.ximat[i]
@@ -677,7 +677,7 @@ def subtree_vel(m: Model, d: Data) -> Data:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        parent = m.body_parentid[b]
+        parent = int(m.body_parentid[b])
         subtree_linvel_np[parent] += subtree_linvel_np[b]
 
   body_subtreemass = np.array(m.body_subtreemass)
@@ -695,7 +695,7 @@ def subtree_vel(m: Model, d: Data) -> Data:
     for b in range(m.nbody):
       if depths[b] != depth or b == 0:
         continue
-      parent = m.body_parentid[b]
+      parent = int(m.body_parentid[b])
 
       xipos_b = np.array(d.xipos[b])
       com_b = np.array(d.subtree_com[b])
@@ -744,13 +744,13 @@ def rne(m: Model, d: Data, flg_acc: bool = False) -> Data:
       if depths[body_id] != depth:
         continue
 
-      if body_id == 0 or m.body_parentid[body_id] == -1:
+      if body_id == 0 or int(m.body_parentid[body_id]) == -1:
         if m.opt.disableflags & DisableBit.GRAVITY:
           cacc = mx.zeros(6)
         else:
           cacc = mx.concatenate([mx.zeros(3), -mx.array(m.opt.gravity)])
       else:
-        cacc = cacc_list[m.body_parentid[body_id]]
+        cacc = cacc_list[int(m.body_parentid[body_id])]
 
       dofs = _body_dofs(m, body_id)
       for di in dofs:
@@ -763,7 +763,7 @@ def rne(m: Model, d: Data, flg_acc: bool = False) -> Data:
   # Compute local forces
   loc_cfrc_list = []
   for i in range(m.nbody):
-    cinert_i = d._impl.cinert[i]
+    cinert_i = (d._impl or d).cinert[i]
     cacc_i = cacc_list[i]
     cvel_i = d.cvel[i]
     frc = mjx_math.inert_mul(cinert_i, cacc_i)
@@ -777,14 +777,14 @@ def rne(m: Model, d: Data, flg_acc: bool = False) -> Data:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        parent = m.body_parentid[b]
+        parent = int(m.body_parentid[b])
         cfrc[parent] += cfrc[b]
   cfrc_mx = mx.array(cfrc)
 
   qfrc_bias_list = []
   for dof in range(m.nv):
     qfrc_bias_list.append(
-        mx.sum(d.cdof[dof] * cfrc_mx[m.dof_bodyid[dof]])
+        mx.sum(d.cdof[dof] * cfrc_mx[int(m.dof_bodyid[dof])])
     )
   qfrc_bias = (
       mx.stack(qfrc_bias_list) if qfrc_bias_list else mx.zeros((m.nv,))
@@ -810,7 +810,7 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
   # cfrc_ext = perturb
   cfrc_ext_list = [mx.zeros(6)]  # world body
   for i in range(1, m.nbody):
-    offset = d.subtree_com[m.body_rootid[i]] - d.xipos[i]
+    offset = d.subtree_com[int(m.body_rootid[i])] - d.xipos[i]
     cfrc_ext_list.append(_transform_force(d.xfrc_applied[i], offset))
   cfrc_ext = mx.stack(cfrc_ext_list)
 
@@ -818,8 +818,8 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
   forces = []
   condim_idx = []
   dims_seen = (
-      set(d._impl.contact.dim)
-      if hasattr(d._impl.contact, 'dim') and d._impl.contact.dim is not None
+      set((d._impl or d).contact.dim)
+      if hasattr((d._impl or d).contact, 'dim') and (d._impl or d).contact.dim is not None
       else set()
   )
   for dim in dims_seen:
@@ -834,14 +834,14 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
 
     for k in range(all_forces_mx.shape[0]):
       ci = all_idx[k]
-      frame = d._impl.contact.frame[ci]
-      pos = d._impl.contact.pos[ci]
-      g1 = d._impl.contact.geom[ci, 0]
-      g2 = d._impl.contact.geom[ci, 1]
+      frame = (d._impl or d).contact.frame[ci]
+      pos = (d._impl or d).contact.pos[ci]
+      g1 = (d._impl or d).contact.geom[ci, 0]
+      g2 = (d._impl or d).contact.geom[ci, 1]
       id1 = m.geom_bodyid[int(g1)]
       id2 = m.geom_bodyid[int(g2)]
-      com1 = np.array(d.subtree_com[m.body_rootid[id1]])
-      com2 = np.array(d.subtree_com[m.body_rootid[id2]])
+      com1 = np.array(d.subtree_com[int(m.body_rootid[id1])])
+      com2 = np.array(d.subtree_com[int(m.body_rootid[id2])])
 
       frc_world = np.array(
           all_forces_mx[k].reshape((-1, 3)) @ frame
@@ -874,7 +874,7 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
       if depths[body_id] != depth:
         continue
 
-      if body_id == 0 or m.body_parentid[body_id] == -1:
+      if body_id == 0 or int(m.body_parentid[body_id]) == -1:
         if m.opt.disableflags & DisableBit.GRAVITY:
           cacc0 = mx.zeros(6)
         else:
@@ -883,9 +883,9 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
         cfrc_int_list[body_id] = mx.zeros(6)
         continue
 
-      cacc_parent = cacc_list[m.body_parentid[body_id]]
-      dof_adr = m.body_dofadr[body_id]
-      dof_num = m.body_dofnum[body_id]
+      cacc_parent = cacc_list[int(m.body_parentid[body_id])]
+      dof_adr = int(m.body_dofadr[body_id])
+      dof_num = int(m.body_dofnum[body_id])
 
       cacc_vel = mx.zeros(6)
       cacc_acc = mx.zeros(6)
@@ -894,7 +894,7 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
         cacc_acc = cacc_acc + d.cdof[di] * d.qacc[di]
       cacc = cacc_parent + cacc_vel + cacc_acc
 
-      cinert_i = d._impl.cinert[body_id]
+      cinert_i = (d._impl or d).cinert[body_id]
       cvel_i = d.cvel[body_id]
       cfrc_body = mjx_math.inert_mul(cinert_i, cacc)
       cfrc_corr = mjx_math.inert_mul(cinert_i, cvel_i)
@@ -909,7 +909,7 @@ def rne_postconstraint(m: Model, d: Data) -> Data:
   for depth in range(max_depth, 0, -1):
     for b in range(m.nbody):
       if depths[b] == depth:
-        parent = m.body_parentid[b]
+        parent = int(m.body_parentid[b])
         cfrc_int_np[parent] += cfrc_int_np[b]
 
   cacc = mx.stack(cacc_list)
@@ -951,13 +951,13 @@ def tendon(m: Model, d: Data) -> Data:
     for w in range(tendon_num_jnt[t]):
       objid = wrap_objid_jnt[offset + w]
       length_jnt_np[t] += (
-          moment_jnt_np[offset + w] * qpos_np[m.jnt_qposadr[objid]]
+          moment_jnt_np[offset + w] * qpos_np[int(m.jnt_qposadr[objid])]
       )
     offset += tendon_num_jnt[t]
   length_jnt = mx.array(length_jnt_np)
 
   adr_moment_jnt = np.repeat(tendon_id_jnt, tendon_num_jnt)
-  dofadr_moment_jnt = m.jnt_dofadr[wrap_objid_jnt]
+  dofadr_moment_jnt = int(m.jnt_dofadr[wrap_objid_jnt])
 
   # Pulleys
   (wrap_id_pulley,) = np.nonzero(m.wrap_type == WrapType.PULLEY)
@@ -1070,24 +1070,24 @@ def _site_dof_mask(m: Model) -> np.ndarray:
   """Creates a dof mask for site transmissions."""
   mask = np.ones((m.nu, m.nv))
   for i in np.nonzero(m.actuator_trnid[:, 1] != -1)[0]:
-    id_, refid = m.actuator_trnid[i]
-    b0 = m.body_weldid[m.site_bodyid[id_]]
-    b1 = m.body_weldid[m.site_bodyid[refid]]
-    dofadr0 = m.body_dofadr[b0] + m.body_dofnum[b0] - 1
-    dofadr1 = m.body_dofadr[b1] + m.body_dofnum[b1] - 1
+    id_, refid = int(m.actuator_trnid[i])
+    b0 = m.body_weldid[int(m.site_bodyid[id_])]
+    b1 = m.body_weldid[int(m.site_bodyid[refid])]
+    dofadr0 = int(m.body_dofadr[b0]) + int(m.body_dofnum[b0]) - 1
+    dofadr1 = int(m.body_dofadr[b1]) + int(m.body_dofnum[b1]) - 1
 
     while dofadr0 != dofadr1:
       if dofadr0 < dofadr1:
-        dofadr1 = m.dof_parentid[dofadr1]
+        dofadr1 = int(m.dof_parentid[dofadr1])
       else:
-        dofadr0 = m.dof_parentid[dofadr0]
+        dofadr0 = int(m.dof_parentid[dofadr0])
       if dofadr0 == -1 or dofadr1 == -1:
         break
 
     da = dofadr0 if dofadr0 == dofadr1 else -1
     while da >= 0:
       mask[i, da] = 0.0
-      da = m.dof_parentid[da]
+      da = int(m.dof_parentid[da])
 
   return mask
 
@@ -1110,7 +1110,7 @@ def transmission(m: Model, d: Data) -> Data:
   for i in range(m.nsite):
     site_quat_list.append(
         mjx_math.quat_mul(
-            mx.array(m.site_quat[i]), d.xquat[m.site_bodyid[i]]
+            mx.array(m.site_quat[i]), d.xquat[int(m.site_bodyid[i])]
         )
     )
   site_quat = (
@@ -1121,20 +1121,20 @@ def transmission(m: Model, d: Data) -> Data:
   moment_list = []
 
   for u in range(m.nu):
-    trntype = m.actuator_trntype[u]
-    trnid = m.actuator_trnid[u]
+    trntype = int(m.actuator_trntype[u])
+    trnid = int(m.actuator_trnid[u])
     gear = mx.array(m.actuator_gear[u])
 
     if trntype in (TrnType.JOINT, TrnType.JOINTINPARENT):
       j = trnid[0]
-      jnt_typ = m.jnt_type[j]
-      m_j = m.jnt_dofadr[j]
+      jnt_typ = int(m.jnt_type[j])
+      m_j = int(m.jnt_dofadr[j])
 
       if jnt_typ == JointType.FREE:
         length = mx.zeros(1)
         moment = gear.copy()
         if trntype == TrnType.JOINTINPARENT:
-          qpos_start = m.jnt_qposadr[j]
+          qpos_start = int(m.jnt_qposadr[j])
           quat_neg = mjx_math.quat_inv(
               d.qpos[qpos_start + 3 : qpos_start + 7]
           )
@@ -1147,7 +1147,7 @@ def transmission(m: Model, d: Data) -> Data:
           moment_full[m_j + k] = float(moment[k])
         moment = mx.array(moment_full)
       elif jnt_typ == JointType.BALL:
-        qpos_start = m.jnt_qposadr[j]
+        qpos_start = int(m.jnt_qposadr[j])
         q = d.qpos[qpos_start : qpos_start + 4]
         axis, angle = mjx_math.quat_to_axis_angle(q)
         gearaxis = gear[:3]
@@ -1160,7 +1160,7 @@ def transmission(m: Model, d: Data) -> Data:
           moment_full[m_j + k] = float(gearaxis[k])
         moment = mx.array(moment_full)
       elif jnt_typ in (JointType.SLIDE, JointType.HINGE):
-        qpos_j = d.qpos[m.jnt_qposadr[j]]
+        qpos_j = d.qpos[int(m.jnt_qposadr[j])]
         length = qpos_j * gear[0]
         if not isinstance(length, mx.array) or length.ndim == 0:
           length = mx.array([float(length)])
@@ -1176,12 +1176,12 @@ def transmission(m: Model, d: Data) -> Data:
       length = mx.zeros(1)
       id_ = trnid[0]
       refid = trnid[1]
-      body_id_ = m.site_bodyid[id_]
+      body_id_ = int(m.site_bodyid[id_])
       jacp, jacr = support.jac(m, d, d.site_xpos[id_], body_id_)
       frame_xmat = d.site_xmat[id_]
 
       if has_refsite[u]:
-        body_refid = m.site_bodyid[refid]
+        body_refid = int(m.site_bodyid[refid])
         vecp = d.site_xmat[refid].T @ (
             d.site_xpos[id_] - d.site_xpos[refid]
         )
@@ -1206,7 +1206,7 @@ def transmission(m: Model, d: Data) -> Data:
 
     elif trntype == TrnType.TENDON:
       length = d.ten_length[trnid[0]] * gear[:1]
-      moment = d._impl.ten_J[trnid[0]] * gear[0]
+      moment = (d._impl or d).ten_J[trnid[0]] * gear[0]
     else:
       raise RuntimeError(f'unrecognized trntype: {TrnType(trntype)}')
 
@@ -1232,7 +1232,7 @@ def tendon_armature(m: Model, d: Data) -> Data:
   if not m.ntendon:
     return d
 
-  ten_J_np = np.array(d._impl.ten_J)
+  ten_J_np = np.array((d._impl or d).ten_J)
   armature_np = np.array(m.tendon_armature)
   JTAJ = ten_J_np.T @ (ten_J_np * armature_np[:, None])
 
@@ -1242,11 +1242,11 @@ def tendon_armature(m: Model, d: Data) -> Data:
       j = i
       while j > -1:
         ij.append((i, j))
-        j = m.dof_parentid[j]
+        j = int(m.dof_parentid[j])
     JTAJ_sparse = np.array([JTAJ[i, j] for i, j in ij])
-    qM_new = mx.array(np.array(d._impl.qM) + JTAJ_sparse)
+    qM_new = mx.array(np.array((d._impl or d).qM) + JTAJ_sparse)
   else:
-    qM_new = d._impl.qM + mx.array(JTAJ)
+    qM_new = (d._impl or d).qM + mx.array(JTAJ)
 
   d = _tree_replace(d, {'_impl.qM': qM_new})
   return d
@@ -1281,8 +1281,8 @@ def tendon_dot(m: Model, d: Data) -> mx.array:
   )
   wrap_objid_site0 = m.wrap_objid[wrap_id_site_pair]
   wrap_objid_site1 = m.wrap_objid[wrap_id_site_pair + 1]
-  site_bodyid0 = m.site_bodyid[wrap_objid_site0]
-  site_bodyid1 = m.site_bodyid[wrap_objid_site1]
+  site_bodyid0 = int(m.site_bodyid[wrap_objid_site0])
+  site_bodyid1 = int(m.site_bodyid[wrap_objid_site1])
 
   momentdots_list = []
   for k in range(wrap_id_site_pair.size):
@@ -1291,8 +1291,8 @@ def tendon_dot(m: Model, d: Data) -> mx.array:
     body0 = site_bodyid0[k]
     body1 = site_bodyid1[k]
 
-    subtree_com0 = d.subtree_com[m.body_rootid[body0]]
-    subtree_com1 = d.subtree_com[m.body_rootid[body1]]
+    subtree_com0 = d.subtree_com[int(m.body_rootid[body0])]
+    subtree_com1 = d.subtree_com[int(m.body_rootid[body1])]
     cvel0 = d.cvel[body0]
     cvel1 = d.cvel[body1]
     wvel0 = cvel0[3:] - mjx_math._cross(wpnt0 - subtree_com0, cvel0[:3])
@@ -1373,7 +1373,7 @@ def tendon_bias(m: Model, d: Data) -> Data:
   ten_Jdot = tendon_dot(m, d)
   coef = mx.array(m.tendon_armature) * (ten_Jdot @ d.qvel)
 
-  ten_J = d._impl.ten_J
+  ten_J = (d._impl or d).ten_J
   bias_add = mx.zeros((m.nv,))
   for i in range(m.ntendon):
     bias_add = bias_add + ten_J[i] * coef[i]

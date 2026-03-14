@@ -67,8 +67,8 @@ def fwd_position(m: Model, d: Data) -> Data:
 def fwd_velocity(m: Model, d: Data) -> Data:
   """Velocity-dependent computations."""
   d = d.tree_replace({
-      '_impl.actuator_velocity': d._impl.actuator_moment @ d.qvel,
-      '_impl.ten_velocity': d._impl.ten_J @ d.qvel,
+      '_impl.actuator_velocity': (d._impl or d).actuator_moment @ d.qvel,
+      '_impl.ten_velocity': (d._impl or d).ten_J @ d.qvel,
   })
   d = smooth.com_vel(m, d)
   d = passive_mod.passive(m, d)
@@ -159,7 +159,7 @@ def fwd_actuation(m: Model, d: Data) -> Data:
       m.actuator_biastype,
       m.actuator_biasprm,
       d.actuator_length,
-      d._impl.actuator_velocity,
+      (d._impl or d).actuator_velocity,
       ctrl_act,
       mx.array(m.actuator_lengthrange),
       mx.array(m.actuator_acc0),
@@ -204,7 +204,7 @@ def fwd_actuation(m: Model, d: Data) -> Data:
   )
   force = mx.clip(force, forcerange[:, 0], forcerange[:, 1])
 
-  qfrc_actuator = d._impl.actuator_moment.T @ force
+  qfrc_actuator = (d._impl or d).actuator_moment.T @ force
 
   if m.ngravcomp:
     # actuator-level gravity compensation, skip if added as passive force
@@ -326,16 +326,16 @@ def euler(m: Model, d: Data) -> Data:
     if support.is_sparse(m):
       # Sparse mass matrix: add damping to diagonal entries
       # Build additive delta and add in one shot
-      delta = mx.zeros_like(d._impl.qM)
+      delta = mx.zeros_like((d._impl or d).qM)
       diag_indices = np.array([int(m.dof_Madr[i]) for i in range(m.nv)])
       damping_vals = m.opt.timestep * m.dof_damping
       # Scatter damping into delta at diagonal addresses
-      delta_np = np.zeros(d._impl.qM.shape, dtype=np.float32)
+      delta_np = np.zeros((d._impl or d).qM.shape, dtype=np.float32)
       for i in range(m.nv):
         delta_np[diag_indices[i]] += float(damping_vals[i])
-      qM = d._impl.qM + mx.array(delta_np)
+      qM = (d._impl or d).qM + mx.array(delta_np)
     else:
-      qM = d._impl.qM + mx.diag(m.opt.timestep * m.dof_damping)
+      qM = (d._impl or d).qM + mx.diag(m.opt.timestep * m.dof_damping)
     dh = d.tree_replace({'_impl.qM': qM})
     dh = smooth.factor_m(m, dh)
     qfrc = d.qfrc_smooth + d.qfrc_constraint
@@ -390,7 +390,7 @@ def implicit(m: Model, d: Data) -> Data:
 
   qacc = d.qacc
   if qderiv is not None:
-    qm = support.full_m(m, d) if support.is_sparse(m) else d._impl.qM
+    qm = support.full_m(m, d) if support.is_sparse(m) else (d._impl or d).qM
     qm = qm - m.opt.timestep * qderiv
     # Cholesky factorization and solve (MLX does not have scipy-style cho_factor)
     # Use direct linear solve: qacc = qm^{-1} @ qfrc
@@ -410,7 +410,7 @@ def forward(m: Model, d: Data) -> Data:
   d = fwd_actuation(m, d)
   d = fwd_acceleration(m, d)
 
-  if d._impl.efc_J.size == 0:
+  if (d._impl or d).efc_J.size == 0:
     d = d.replace(qacc=d.qacc_smooth)
     return d
 

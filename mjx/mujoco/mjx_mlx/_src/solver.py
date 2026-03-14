@@ -81,20 +81,18 @@ class Context(PyTreeNode):
     if not isinstance(d._impl, DataMLX) or not isinstance(
         m.opt._impl, OptionMLX
     ):
-      raise ValueError(
-          'Constraint context requires MLX backend implementation.'
-      )
+      pass  # MLX port: backend check removed
 
-    jaref = d._impl.efc_J @ d.qacc - d._impl.efc_aref
+    jaref = (d._impl or d).efc_J @ d.qacc - (d._impl or d).efc_aref
     ma = support.mul_m(m, d, d.qacc)
     nv_0 = mx.zeros(m.nv)
     fri = mx.array(0.0)
     if m.opt.cone == ConeType.ELLIPTIC:
-      mask = d._impl.contact.dim > 1
+      mask = (d._impl or d).contact.dim > 1
       mask_idx = np.nonzero(mask)[0]
       if mask_idx.size > 0:
-        friction = d._impl.contact.friction[mask_idx]
-        dim = d._impl.contact.dim[mask_idx]
+        friction = (d._impl or d).contact.friction[mask_idx]
+        dim = (d._impl or d).contact.dim[mask_idx]
         mu = friction[:, 0] / mx.sqrt(m.opt.impratio)
         fri = mx.concatenate([mu[:, None], friction], axis=1)
         for condim in (3, 4, 6):
@@ -112,7 +110,7 @@ class Context(PyTreeNode):
         qacc=d.qacc,
         qfrc_constraint=d.qfrc_constraint,
         Jaref=jaref,
-        efc_force=d._impl.efc_force,
+        efc_force=(d._impl or d).efc_force,
         Ma=ma,
         grad=nv_0,
         Mgrad=nv_0,
@@ -166,26 +164,25 @@ class _LSPoint(PyTreeNode):
       vv: mx.array,
   ) -> '_LSPoint':
     """Creates a linesearch point with first and second derivatives."""
-    if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-      raise ValueError('LSPoint requires MLX backend implementation.')
+    # MLX port: backend check removed
 
     cost, deriv_0, deriv_1 = mx.array(0.0), mx.array(0.0), mx.array(0.0)
     quad_total = quad_gauss
     x = ctx.Jaref + alpha * jv
-    ne_nf = d._impl.ne + d._impl.nf
+    ne_nf = (d._impl or d).ne + (d._impl or d).nf
     active = (x < 0)
     # Set first ne+nf entries to True
     if ne_nf > 0:
       mask_ne_nf = mx.arange(x.shape[0]) < ne_nf
       active = mx.where(mask_ne_nf, True, active)
 
-    dof_fl = m._impl.dof_hasfrictionloss
-    ten_fl = m._impl.tendon_hasfrictionloss
+    dof_fl = (m._impl or m).dof_hasfrictionloss
+    ten_fl = (m._impl or m).tendon_hasfrictionloss
     if (dof_fl.any() or ten_fl.any()) and not (
         m.opt.disableflags & DisableBit.FRICTIONLOSS
     ):
-      f = d._impl.efc_frictionloss
-      r = 1.0 / (d._impl.efc_D + (d._impl.efc_D == 0.0) * mujoco.mjMINVAL)
+      f = (d._impl or d).efc_frictionloss
+      r = 1.0 / ((d._impl or d).efc_D + ((d._impl or d).efc_D == 0.0) * mujoco.mjMINVAL)
       rf = r * f
       z = mx.zeros_like(f)
 
@@ -219,9 +216,9 @@ class _LSPoint(PyTreeNode):
       middle_zone = (tsqr > 0) & (n < (mu * t)) & ((mu * n + t) > 0)
 
       # quadratic cost for equality, friction, limits, frictionless contacts
-      dim1_idx = np.nonzero(d._impl.contact.dim == 1)[0]
-      dim1_addrs = d._impl.contact.efc_address[dim1_idx]
-      nefl = d._impl.ne + d._impl.nf + d._impl.nl
+      dim1_idx = np.nonzero((d._impl or d).contact.dim == 1)[0]
+      dim1_addrs = (d._impl or d).contact.efc_address[dim1_idx]
+      nefl = (d._impl or d).ne + (d._impl or d).nf + (d._impl or d).nl
       # Set active: nefl onwards to False, then re-enable dim1
       nefl_mask = mx.arange(active.shape[0]) >= nefl
       active = mx.where(nefl_mask, False, active)
@@ -234,8 +231,8 @@ class _LSPoint(PyTreeNode):
       quad_total = quad_total + mx.sum(quad_efld, axis=0)
 
       # elliptic bottom zone: quadratic cost
-      efc_elliptic_idx = np.nonzero(d._impl.contact.dim > 1)[0]
-      efc_elliptic_addrs = d._impl.contact.efc_address[efc_elliptic_idx]
+      efc_elliptic_idx = np.nonzero((d._impl or d).contact.dim > 1)[0]
+      efc_elliptic_addrs = (d._impl or d).contact.efc_address[efc_elliptic_idx]
       if len(efc_elliptic_addrs) > 0:
         quad_c = quad[efc_elliptic_addrs] * bottom_zone[:, None]
         quad_total = quad_total + mx.sum(quad_c, axis=0)
@@ -294,26 +291,25 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
   Returns:
     context with new constraint force and costs
   """
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('_update_constraint requires MLX backend implementation.')
+  # MLX port: backend check removed
 
   # ne constraints are always active, nf are conditionally active, others are
   # non-negative constraints.
-  ne_nf = d._impl.ne + d._impl.nf
+  ne_nf = (d._impl or d).ne + (d._impl or d).nf
   active = (ctx.Jaref < 0)
   if ne_nf > 0:
     mask_ne_nf = mx.arange(ctx.Jaref.shape[0]) < ne_nf
     active = mx.where(mask_ne_nf, True, active)
 
-  floss_force = mx.zeros(d._impl.nefc)
+  floss_force = mx.zeros((d._impl or d).nefc)
   floss_cost = mx.array(0.0)
-  dof_fl = m._impl.dof_hasfrictionloss
-  ten_fl = m._impl.tendon_hasfrictionloss
+  dof_fl = (m._impl or m).dof_hasfrictionloss
+  ten_fl = (m._impl or m).tendon_hasfrictionloss
   if (dof_fl.any() or ten_fl.any()) and not (
       m.opt.disableflags & DisableBit.FRICTIONLOSS
   ):
-    f = d._impl.efc_frictionloss
-    r = 1.0 / (d._impl.efc_D + (d._impl.efc_D == 0.0) * mujoco.mjMINVAL)
+    f = (d._impl or d).efc_frictionloss
+    r = 1.0 / ((d._impl or d).efc_D + ((d._impl or d).efc_D == 0.0) * mujoco.mjMINVAL)
     linear_neg = (ctx.Jaref <= -r * f) * (f > 0)
     linear_pos = (ctx.Jaref >= r * f) * (f > 0)
     active = active & ~linear_neg & ~linear_pos
@@ -323,14 +319,14 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
     floss_cost = mx.sum(floss_cost)
 
   if m.opt.cone == ConeType.PYRAMIDAL:
-    efc_force = d._impl.efc_D * -ctx.Jaref * active + floss_force
-    cost = 0.5 * mx.sum(d._impl.efc_D * ctx.Jaref * ctx.Jaref * active)
+    efc_force = (d._impl or d).efc_D * -ctx.Jaref * active + floss_force
+    cost = 0.5 * mx.sum((d._impl or d).efc_D * ctx.Jaref * ctx.Jaref * active)
     dm, u, h = mx.array(0.0), mx.array(0.0), mx.array(0.0)
   elif m.opt.cone == ConeType.ELLIPTIC:
-    friction_idx = np.nonzero(d._impl.contact.dim > 1)[0]
-    friction = d._impl.contact.friction[friction_idx]
-    efc_address = d._impl.contact.efc_address[friction_idx]
-    dim = d._impl.contact.dim[friction_idx]
+    friction_idx = np.nonzero((d._impl or d).contact.dim > 1)[0]
+    friction = (d._impl or d).contact.friction[friction_idx]
+    efc_address = (d._impl or d).contact.efc_address[friction_idx]
+    dim = (d._impl or d).contact.dim[friction_idx]
 
     # Gather Jaref slices for each elliptic contact
     jaref_padded = mx.concatenate([ctx.Jaref, mx.zeros(3)])
@@ -358,12 +354,12 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
           idx_mask = mx.arange(active.shape[0]) == (addr + j)
           active = mx.where(idx_mask, bottom_zone[i], active)
 
-      efc_force = d._impl.efc_D * -ctx.Jaref * active + floss_force
-      cost = 0.5 * mx.sum(d._impl.efc_D * ctx.Jaref * ctx.Jaref * active)
+      efc_force = (d._impl or d).efc_D * -ctx.Jaref * active + floss_force
+      cost = 0.5 * mx.sum((d._impl or d).efc_D * ctx.Jaref * ctx.Jaref * active)
 
       # middle zone: cone
       middle_zone = (t > 0) & (n < (mu * t)) & ((mu * n + t) > 0)
-      dm = d._impl.efc_D[efc_address] / mx.maximum(
+      dm = (d._impl or d).efc_D[efc_address] / mx.maximum(
           mu * mu * (1 + mu * mu), mx.array(mujoco.mjMINVAL)
       )
       nmt = n - mu * t
@@ -412,13 +408,13 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
 
         h = mx.stack(h_list) if h_list else mx.array(0.0)
     else:
-      efc_force = d._impl.efc_D * -ctx.Jaref * active + floss_force
-      cost = 0.5 * mx.sum(d._impl.efc_D * ctx.Jaref * ctx.Jaref * active)
+      efc_force = (d._impl or d).efc_D * -ctx.Jaref * active + floss_force
+      cost = 0.5 * mx.sum((d._impl or d).efc_D * ctx.Jaref * ctx.Jaref * active)
       dm, u, h = mx.array(0.0), mx.array(0.0), mx.array(0.0)
   else:
     raise NotImplementedError(f'unsupported cone type: {m.opt.cone}')
 
-  qfrc_constraint = d._impl.efc_J.T @ efc_force
+  qfrc_constraint = (d._impl or d).efc_J.T @ efc_force
   gauss = 0.5 * mx.sum((ctx.Ma - d.qfrc_smooth) * (ctx.qacc - d.qacc_smooth))
   ctx = ctx.replace(
       qfrc_constraint=qfrc_constraint,
@@ -450,8 +446,7 @@ def _update_gradient(m: Model, d: Data, ctx: Context) -> Context:
   Raises:
     NotImplementedError: for unsupported solver type
   """
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('_update_gradient requires MLX backend implementation.')
+  # MLX port: backend check removed
 
   grad = ctx.Ma - d.qfrc_smooth - ctx.qfrc_constraint
 
@@ -459,9 +454,9 @@ def _update_gradient(m: Model, d: Data, ctx: Context) -> Context:
     mgrad = smooth.solve_m(m, d, grad)
   elif m.opt.solver == SolverType.NEWTON:
     if m.opt.cone == ConeType.ELLIPTIC:
-      cm = mx.diag(d._impl.efc_D * ctx.active)
-      efc_address = d._impl.contact.efc_address[d._impl.contact.dim > 1]
-      dim = d._impl.contact.dim[d._impl.contact.dim > 1]
+      cm = mx.diag((d._impl or d).efc_D * ctx.active)
+      efc_address = (d._impl or d).contact.efc_address[(d._impl or d).contact.dim > 1]
+      dim = (d._impl or d).contact.dim[(d._impl or d).contact.dim > 1]
       # set efc of cone H along diagonal
       for i, (condim, addr) in enumerate(zip(dim, efc_address)):
         condim = int(condim)
@@ -474,9 +469,9 @@ def _update_gradient(m: Model, d: Data, ctx: Context) -> Context:
             col_mask = mx.arange(cm.shape[1]) == (addr + c)
             mask_2d = row_mask[:, None] & col_mask[None, :]
             cm = mx.where(mask_2d, cm + h_cone[r, c], cm)
-      h = d._impl.efc_J.T @ cm @ d._impl.efc_J
+      h = (d._impl or d).efc_J.T @ cm @ (d._impl or d).efc_J
     else:
-      h = (d._impl.efc_J.T * (d._impl.efc_D * ctx.active)) @ d._impl.efc_J
+      h = ((d._impl or d).efc_J.T * ((d._impl or d).efc_D * ctx.active)) @ (d._impl or d).efc_J
     h = support.full_m(m, d) + h
     # Symmetrize to reduce the chance of numerical issues in cholesky
     h_sym = (h + h.T) * 0.5
@@ -510,18 +505,17 @@ def _linesearch(m: Model, d: Data, ctx: Context) -> Context:
     updated context with new qacc, Ma, Jaref
   """
   if (
-      not isinstance(m._impl, ModelMLX)
-      or not isinstance(d._impl, DataMLX)
+      False  # MLX port: single backend
       or not isinstance(m.opt._impl, OptionMLX)
   ):
-    raise ValueError('_linesearch requires MLX backend implementation.')
+    pass  # MLX port: backend check removed
 
   smag = math.norm(ctx.search) * m.stat.meaninertia * max(1, m.nv)
   gtol = m.opt.tolerance * m.opt.ls_tolerance * smag
 
   # compute Mv, Jv
   mv = support.mul_m(m, d, ctx.search)
-  jv = d._impl.efc_J @ ctx.search
+  jv = (d._impl or d).efc_J @ ctx.search
 
   # prepare quadratics
   quad_gauss = mx.stack([
@@ -534,20 +528,20 @@ def _linesearch(m: Model, d: Data, ctx: Context) -> Context:
       jv * ctx.Jaref,
       0.5 * jv * jv,
   ])
-  quad = (quad * d._impl.efc_D).T
+  quad = (quad * (d._impl or d).efc_D).T
 
   uu = mx.array(0.0)
   v0 = mx.array(0.0)
   uv = mx.array(0.0)
   vv = mx.array(0.0)
   if m.opt.cone == ConeType.ELLIPTIC:
-    mask = d._impl.contact.dim > 1
+    mask = (d._impl or d).contact.dim > 1
     mask_idx = np.nonzero(mask)[0]
     if mask_idx.size > 0:
       # complete vector quadratic (for bottom zone)
       for ii in range(mask_idx.size):
-        condim = int(d._impl.contact.dim[mask_idx[ii]])
-        addr = int(d._impl.contact.efc_address[mask_idx[ii]])
+        condim = int((d._impl or d).contact.dim[mask_idx[ii]])
+        addr = int((d._impl or d).contact.efc_address[mask_idx[ii]])
         for jj in range(1, condim):
           quad_sum = quad[addr] + quad[addr + jj]
           # Scatter back
@@ -557,7 +551,7 @@ def _linesearch(m: Model, d: Data, ctx: Context) -> Context:
 
       # rescale to make primal cone circular
       jv_padded = mx.concatenate([jv, mx.zeros(3)])
-      efc_elliptic = d._impl.contact.efc_address[mask_idx]
+      efc_elliptic = (d._impl or d).contact.efc_address[mask_idx]
       v_list = []
       for addr in efc_elliptic:
         addr = int(addr)
@@ -638,7 +632,7 @@ def _linesearch(m: Model, d: Data, ctx: Context) -> Context:
 def solve(m: Model, d: Data) -> Data:
   """Finds forces that satisfy constraints using conjugate gradient descent."""
   if not isinstance(m.opt._impl, OptionMLX):
-    raise ValueError('solve requires MLX backend implementation.')
+    pass  # MLX port: backend check removed
 
   def _cond(ctx: Context) -> bool:
     improvement = _rescale(m, ctx.prev_cost - ctx.cost)

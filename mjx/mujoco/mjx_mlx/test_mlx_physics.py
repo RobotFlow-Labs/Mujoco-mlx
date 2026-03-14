@@ -129,6 +129,133 @@ def test_dataclasses_tree_map():
 
 
 # ============================================================================
+# Phase 0.5: Model Loading tests
+# ============================================================================
+
+# ---- XML model strings for testing ----
+
+CARTPOLE_XML = """
+<mujoco model="cartpole">
+  <option gravity="0 0 -9.81"/>
+  <worldbody>
+    <body name="cart" pos="0 0 0">
+      <joint name="slider" type="slide" axis="1 0 0"/>
+      <geom type="box" size="0.2 0.1 0.05" mass="1.0"/>
+      <body name="pole" pos="0 0 0.05">
+        <joint name="hinge" type="hinge" axis="0 1 0"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.5" size="0.02" mass="0.1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="slider" ctrlrange="-10 10"/>
+  </actuator>
+</mujoco>
+"""
+
+PENDULUM_XML = """
+<mujoco model="pendulum">
+  <option gravity="0 0 -9.81"/>
+  <worldbody>
+    <body name="arm" pos="0 0 0">
+      <joint name="hinge" type="hinge" axis="0 1 0"/>
+      <geom type="capsule" fromto="0 0 0 0 0 0.5" size="0.02" mass="0.1"/>
+    </body>
+  </worldbody>
+</mujoco>
+"""
+
+
+def test_model_loading_cartpole():
+    """Load cartpole XML via put_model, verify nq=2, nv=2, nbody=3."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    assert int(mx_model.nq) == 2, f"Expected nq=2, got {mx_model.nq}"
+    assert int(mx_model.nv) == 2, f"Expected nv=2, got {mx_model.nv}"
+    assert int(mx_model.nbody) == 3, f"Expected nbody=3, got {mx_model.nbody}"
+    print("  model_loading_cartpole: PASS")
+
+
+def test_data_loading_cartpole():
+    """Load cartpole, call make_data(), verify qpos shape is (2,) and all zeros."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model, make_data
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    mx_data = make_data(mx_model)
+    qpos = np.array(mx_data.qpos)
+    assert qpos.shape == (2,), f"Expected qpos shape (2,), got {qpos.shape}"
+    np.testing.assert_allclose(qpos, np.zeros(2), atol=1e-7)
+    print("  data_loading_cartpole: PASS")
+
+
+def test_model_loading_pendulum():
+    """Load a single-pendulum XML, verify nq=1, nv=1."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model
+
+    mj_model = mj.MjModel.from_xml_string(PENDULUM_XML)
+    mx_model = put_model(mj_model)
+    assert int(mx_model.nq) == 1, f"Expected nq=1, got {mx_model.nq}"
+    assert int(mx_model.nv) == 1, f"Expected nv=1, got {mx_model.nv}"
+    print("  model_loading_pendulum: PASS")
+
+
+def test_model_body_properties():
+    """Load cartpole, verify body_mass is a non-zero array."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    body_mass = np.array(mx_model.body_mass)
+    assert body_mass.shape[0] == 3, f"Expected 3 bodies, got {body_mass.shape[0]}"
+    # At least one body (cart or pole) should have non-zero mass
+    assert np.any(body_mass > 0), "Expected at least one body with non-zero mass"
+    print("  model_body_properties: PASS")
+
+
+def test_model_joint_properties():
+    """Load cartpole, verify jnt_type has 2 entries."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    jnt_type = np.array(mx_model.jnt_type)
+    assert jnt_type.shape == (2,), f"Expected jnt_type shape (2,), got {jnt_type.shape}"
+    print("  model_joint_properties: PASS")
+
+
+def test_data_qvel_shape():
+    """Verify qvel shape matches nv for cartpole."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model, make_data
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    mx_data = make_data(mx_model)
+    qvel = np.array(mx_data.qvel)
+    assert qvel.shape == (int(mx_model.nv),), f"Expected qvel shape ({mx_model.nv},), got {qvel.shape}"
+    print("  data_qvel_shape: PASS")
+
+
+def test_model_actuator():
+    """Verify nu=1 for cartpole with one motor."""
+    import mujoco as mj
+    from mujoco.mjx_mlx._src.io import put_model
+
+    mj_model = mj.MjModel.from_xml_string(CARTPOLE_XML)
+    mx_model = put_model(mj_model)
+    assert int(mx_model.nu) == 1, f"Expected nu=1, got {mx_model.nu}"
+    print("  model_actuator: PASS")
+
+
+# ============================================================================
 # Phase 1: Dynamics tests (require smooth, support, constraint, solver, forward)
 # ============================================================================
 
@@ -294,6 +421,25 @@ def main():
         test_dataclasses_tree_map,
     ]
     for t in tests_p0:
+        try:
+            t()
+            passed += 1
+        except Exception as e:
+            print(f"  {t.__name__}: FAIL ({e})")
+            failed += 1
+
+    # Phase 0.5: Model Loading
+    print("\n--- Phase 0.5: Model Loading ---")
+    tests_p05 = [
+        test_model_loading_cartpole,
+        test_data_loading_cartpole,
+        test_model_loading_pendulum,
+        test_model_body_properties,
+        test_model_joint_properties,
+        test_data_qvel_shape,
+        test_model_actuator,
+    ]
+    for t in tests_p05:
         try:
             t()
             passed += 1

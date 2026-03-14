@@ -104,8 +104,8 @@ def _apply_cutoff(
 
 def sensor_pos(m: Model, d: Data) -> Data:
   """Compute position-dependent sensors values."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_pos requires MLX backend implementation.')
+  if False:  # MLX port: single backend
+    pass
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -214,7 +214,7 @@ def sensor_pos(m: Model, d: Data) -> Data:
       )
       adr = (adr[:, None] + np.arange(2)[None]).reshape(-1)
     elif sensor_type == SensorType.RANGEFINDER:
-      site_bodyid = m.site_bodyid[objid]
+      site_bodyid = int(m.site_bodyid[objid])
       for sid in set(site_bodyid):
         idxs = sid == site_bodyid
         objids = objid[idxs]
@@ -228,7 +228,7 @@ def sensor_pos(m: Model, d: Data) -> Data:
         adrs.append(adr[idxs])
       continue  # avoid adding to sensors/adrs list a second time
     elif sensor_type == SensorType.JOINTPOS:
-      sensor = d.qpos[m.jnt_qposadr[objid]]
+      sensor = d.qpos[int(m.jnt_qposadr[objid])]
     elif sensor_type == SensorType.TENDONPOS:
       sensor = d.ten_length[objid]
     elif sensor_type == SensorType.ACTUATORPOS:
@@ -287,15 +287,15 @@ def sensor_pos(m: Model, d: Data) -> Data:
           return _vmap(math.quat_mul)(d.xquat[oid], m.body_iquat[oid])
         elif otype == ObjType.GEOM:
           return _vmap(math.quat_mul)(
-              d.xquat[m.geom_bodyid[oid]], m.geom_quat[oid]
+              d.xquat[int(m.geom_bodyid[oid])], m.geom_quat[oid]
           )
         elif otype == ObjType.SITE:
           return _vmap(math.quat_mul)(
-              d.xquat[m.site_bodyid[oid]], m.site_quat[oid]
+              d.xquat[int(m.site_bodyid[oid])], m.site_quat[oid]
           )
         elif otype == ObjType.CAMERA:
           return _vmap(math.quat_mul)(
-              d.xquat[m.cam_bodyid[oid]], m.cam_quat[oid]
+              d.xquat[int(m.cam_bodyid[oid])], m.cam_quat[oid]
           )
         elif otype == ObjType.UNKNOWN:
           return mx.tile(mx.array([1.0, 0.0, 0.0, 0.0]), (oid.size, 1))
@@ -343,8 +343,8 @@ def sensor_pos(m: Model, d: Data) -> Data:
 
 def sensor_vel(m: Model, d: Data) -> Data:
   """Compute velocity-dependent sensors values."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_vel requires MLX backend implementation.')
+  if False:  # MLX port: single backend
+    pass
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -378,27 +378,27 @@ def sensor_vel(m: Model, d: Data) -> Data:
     data_type = m.sensor_datatype[idx]
 
     if sensor_type == SensorType.VELOCIMETER:
-      bodyid = m.site_bodyid[objid]
+      bodyid = int(m.site_bodyid[objid])
       pos = d.site_xpos[objid]
       rot = d.site_xmat[objid]
       cvel = d.cvel[bodyid]
-      subtree_com = d.subtree_com[m.body_rootid[bodyid]]
+      subtree_com = d.subtree_com[int(m.body_rootid[bodyid])]
       sensor = _vmap(
           lambda vec, dif, rot: rot.T @ (vec[3:] - _cross(dif, vec[:3]))
       )(cvel, pos - subtree_com, rot)
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.GYRO:
-      bodyid = m.site_bodyid[objid]
+      bodyid = int(m.site_bodyid[objid])
       rot = d.site_xmat[objid]
       ang = d.cvel[bodyid, :3]
       sensor = _vmap(lambda ang, rot: rot.T @ ang)(ang, rot)
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.JOINTVEL:
-      sensor = d.qvel[m.jnt_dofadr[objid]]
+      sensor = d.qvel[int(m.jnt_dofadr[objid])]
     elif sensor_type == SensorType.TENDONVEL:
-      sensor = d._impl.ten_velocity[objid]
+      sensor = (d._impl or d).ten_velocity[objid]
     elif sensor_type == SensorType.ACTUATORVEL:
-      sensor = d._impl.actuator_velocity[objid]
+      sensor = (d._impl or d).actuator_velocity[objid]
     elif sensor_type == SensorType.BALLANGVEL:
       jnt_dotadr = m.jnt_dofadr[objid, None] + np.arange(3)[None]
       sensor = d.qvel[jnt_dotadr]
@@ -425,7 +425,7 @@ def sensor_vel(m: Model, d: Data) -> Data:
           pos, _, bodyid = objtype_data[otype]
           pos = pos[oid]
           bodyid = bodyid[oid]
-          return d.cvel[bodyid], pos - d.subtree_com[m.body_rootid[bodyid]]
+          return d.cvel[bodyid], pos - d.subtree_com[int(m.body_rootid[bodyid])]
 
         cvel, offset = _cvel_offset(ot, objidt)
         cvelref, offsetref = _cvel_offset(rt, refidt)
@@ -460,10 +460,10 @@ def sensor_vel(m: Model, d: Data) -> Data:
         adrs.append(adrt.reshape(-1))
       continue  # avoid adding to sensors/adrs list a second time
     elif sensor_type == SensorType.SUBTREELINVEL:
-      sensor = d._impl.subtree_linvel[objid]
+      sensor = (d._impl or d).subtree_linvel[objid]
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.SUBTREEANGMOM:
-      sensor = d._impl.subtree_angmom[objid]
+      sensor = (d._impl or d).subtree_angmom[objid]
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     else:
       # TODO(taylorhowell): raise error after adding sensor check to io.py
@@ -484,8 +484,8 @@ def sensor_vel(m: Model, d: Data) -> Data:
 
 def sensor_acc(m: Model, d: Data) -> Data:
   """Compute acceleration/force-dependent sensors values."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('sensor_acc requires MLX backend implementation.')
+  if False:  # MLX port: single backend
+    pass
 
   if m.opt.disableflags & DisableBit.SENSOR:
     return d
@@ -523,7 +523,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
     # compute contact forces
     contact_force = []
     condim_ids = []
-    for dim in set(d._impl.contact.dim):
+    for dim in set((d._impl or d).contact.dim):
       force, condim_id = support.contact_force_dim(m, d, dim)
       contact_force.append(force)
       condim_ids.append(condim_id)
@@ -542,24 +542,24 @@ def sensor_acc(m: Model, d: Data) -> Data:
 
     if sensor_type == SensorType.TOUCH:
       # get bodies of contact geoms
-      conbody = mx.array(m.geom_bodyid)[d._impl.contact.geom]
+      conbody = mx.array(m.geom_bodyid)[(d._impl or d).contact.geom]
 
       # get site information
-      site_bodyid = m.site_bodyid[objid]
+      site_bodyid = int(m.site_bodyid[objid])
       site_size = m.site_size[objid]
       site_xpos = d.site_xpos[objid]
       site_xmat = d.site_xmat[objid]
       site_type = m.site_type[objid]
       conbody0 = site_bodyid[:, None] == conbody[:, 0]
       conbody1 = site_bodyid[:, None] == conbody[:, 1]
-      contacts = (d._impl.contact.efc_address >= 0)[None] & (
+      contacts = ((d._impl or d).contact.efc_address >= 0)[None] & (
           conbody0 | conbody1
       )
 
       # compute conray, flip if second body
       conray = _vmap(
           lambda frame, force: math.normalize(frame[0] * force[0])
-      )(d._impl.contact.frame, contact_force)
+      )((d._impl or d).contact.frame, contact_force)
       conray = mx.where(conbody1[..., None], -conray, conray)
 
       # compute distance, mapping over sites and contacts
@@ -581,7 +581,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
             site_xpos[dist_id_site],
             site_xmat[dist_id_site],
             st,
-            d._impl.contact.pos,
+            (d._impl or d).contact.pos,
             conray[dist_id_site],
         )
         dist.append(mx.where(mx.isinf(dist_site), 0, dist_site))
@@ -592,11 +592,11 @@ def sensor_acc(m: Model, d: Data) -> Data:
       sensor = mx.dot((dist > 0) & contacts, contact_force[:, 0])
     elif sensor_type == SensorType.CONTACT:
       # maximum number of contacts
-      ncon = d._impl.ncon
+      ncon = (d._impl or d).ncon
 
       # active contacts
-      dist = d._impl.contact.dist
-      pos = dist - d._impl.contact.includemargin
+      dist = (d._impl or d).contact.dist
+      pos = dist - (d._impl or d).contact.includemargin
       is_contact = pos < 0
 
       # reduction criteria
@@ -664,8 +664,8 @@ def sensor_acc(m: Model, d: Data) -> Data:
         elif objtype == ObjType.GEOM or reftype == ObjType.GEOM:
           sensorid1 = objid[idx_ds]
           sensorid2 = refid[idx_ds]
-          geomid0 = d._impl.contact.geom[:, 0]
-          geomid1 = d._impl.contact.geom[:, 1]
+          geomid0 = (d._impl or d).contact.geom[:, 0]
+          geomid1 = (d._impl or d).contact.geom[:, 1]
 
           # match sensor ids and contact geom ids
           geom0id1 = geomid0 == sensorid1[:, None]
@@ -728,13 +728,13 @@ def sensor_acc(m: Model, d: Data) -> Data:
           slot.append(dist[cid, None])
 
         if dataspec & (1 << 4):  # pos
-          slot.append(d._impl.contact.pos[cid])
+          slot.append((d._impl or d).contact.pos[cid])
 
         if dataspec & (1 << 5):  # normal
-          slot.append(flip[:, 2, None] * d._impl.contact.frame[cid, 0])
+          slot.append(flip[:, 2, None] * (d._impl or d).contact.frame[cid, 0])
 
         if dataspec & (1 << 6):  # tangent
-          slot.append(flip[:, 2, None] * d._impl.contact.frame[cid, 1])
+          slot.append(flip[:, 2, None] * (d._impl or d).contact.frame[cid, 1])
 
         found = mx.tile(mx.arange(num), nsensor) < mx.repeat(nfound, num)
         sensors.append((found[:, None] * mx.concatenate(slot, axis=1)).reshape(-1))
@@ -753,26 +753,26 @@ def sensor_acc(m: Model, d: Data) -> Data:
         correction = _cross(ang, lin)
         return acc + correction
 
-      bodyid = m.site_bodyid[objid]
+      bodyid = int(m.site_bodyid[objid])
       rot = d.site_xmat[objid]
       cvel = d.cvel[bodyid]
-      cacc = d._impl.cacc[bodyid]
-      dif = d.site_xpos[objid] - d.subtree_com[m.body_rootid[bodyid]]
+      cacc = (d._impl or d).cacc[bodyid]
+      dif = d.site_xpos[objid] - d.subtree_com[int(m.body_rootid[bodyid])]
 
       sensor = _accelerometer(cvel, cacc, dif, rot)
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.FORCE:
-      bodyid = m.site_bodyid[objid]
-      cfrc_int = d._impl.cfrc_int[bodyid]
+      bodyid = int(m.site_bodyid[objid])
+      cfrc_int = (d._impl or d).cfrc_int[bodyid]
       site_xmat = d.site_xmat[objid]
       sensor = _vmap(lambda mat, vec: mat.T @ vec)(
           site_xmat, cfrc_int[:, 3:]
       )
       adr = (adr[:, None] + np.arange(3)[None]).reshape(-1)
     elif sensor_type == SensorType.TORQUE:
-      bodyid = m.site_bodyid[objid]
-      rootid = m.body_rootid[bodyid]
-      cfrc_int = d._impl.cfrc_int[bodyid]
+      bodyid = int(m.site_bodyid[objid])
+      rootid = int(m.body_rootid[bodyid])
+      cfrc_int = (d._impl or d).cfrc_int[bodyid]
       site_xmat = d.site_xmat[objid]
       dif = d.site_xpos[objid] - d.subtree_com[rootid]
       sensor = _vmap(
@@ -782,7 +782,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
     elif sensor_type == SensorType.ACTUATORFRC:
       sensor = d.actuator_force[objid]
     elif sensor_type == SensorType.JOINTACTFRC:
-      sensor = d.qfrc_actuator[m.jnt_dofadr[objid]]
+      sensor = d.qfrc_actuator[int(m.jnt_dofadr[objid])]
     elif sensor_type == SensorType.TENDONACTFRC:
       force_mask = [
           (m.actuator_trntype == TrnType.TENDON)
@@ -801,7 +801,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
         pos, bodyid = objtype_data[ot]
         pos = pos[objidt]
         bodyid = bodyid[objidt]
-        cacc = d._impl.cacc[bodyid]
+        cacc = (d._impl or d).cacc[bodyid]
 
         if sensor_type == SensorType.FRAMELINACC:
 
@@ -814,7 +814,7 @@ def sensor_acc(m: Model, d: Data) -> Data:
             return acc + correction
 
           cvel = d.cvel[bodyid]
-          offset = pos - d.subtree_com[m.body_rootid[bodyid]]
+          offset = pos - d.subtree_com[int(m.body_rootid[bodyid])]
 
           sensor = _framelinacc(cvel, cacc, offset).reshape(-1)
         elif sensor_type == SensorType.FRAMEANGACC:

@@ -72,6 +72,12 @@ class MLXNode:
       new = _tree_replace_impl(new, k.split('.'), v)
     return new
 
+  @property
+  def _impl_or_self(self):
+    """Return _impl if it exists and is not None, else self."""
+    impl = object.__getattribute__(self, '_impl') if '_impl' in {f.name for f in dataclasses.fields(self)} else None
+    return impl if impl is not None else self
+
 
 class DisableBit(enum.IntFlag):
   """Disable default feature bitflags.

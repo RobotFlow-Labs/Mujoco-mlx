@@ -151,8 +151,8 @@ def geom_pairs(
   for b1 in range(m.nbody):
     if not geom_con[b_start[b1] : b_end[b1]].any():
       continue
-    w1 = m.body_weldid[b1]
-    w1_p = m.body_weldid[m.body_parentid[w1]]
+    w1 = int(m.body_weldid[b1])
+    w1_p = m.body_weldid[int(m.body_parentid[w1])]
 
     for b2 in range(b1, m.nbody):
       if not geom_con[b_start[b2] : b_end[b2]].any():
@@ -160,11 +160,11 @@ def geom_pairs(
       signature = (b1 << 16) + (b2)
       if signature in exclude_signature:
         continue
-      w2 = m.body_weldid[b2]
+      w2 = int(m.body_weldid[b2])
       # ignore self-collisions
       if w1 == w2:
         continue
-      w2_p = m.body_weldid[m.body_parentid[w2]]
+      w2_p = m.body_weldid[int(m.body_parentid[w2])]
       # ignore parent-child collisions
       if filterparent and w1 != 0 and w2 != 0 and (w1 == w2_p or w2 == w1_p):
         continue
@@ -214,7 +214,7 @@ def _geom_groups(
 
     if types[0] == mujoco.mjtGeom.mjGEOM_HFIELD:
       geom_rbound_hfield = (
-          m._impl.geom_rbound_hfield if isinstance(m, Model) else m.geom_rbound
+          (m._impl or m).geom_rbound_hfield if isinstance(m, Model) else m.geom_rbound
       )
       nrow, ncol = m.hfield_nrow[data_ids[0]], m.hfield_ncol[data_ids[0]]
       xsize, ysize = m.hfield_size[data_ids[0]][:2]
@@ -312,11 +312,11 @@ def _contact_groups(m: Model, d: Data) -> Dict[FunctionKey, Contact]:
         solref=solref,
         solreffriction=solreffriction,
         solimp=solimp,
-        dim=d._impl.contact.dim,
+        dim=(d._impl or d).contact.dim,
         geom1=mx.array(geom[:, 0]),
         geom2=mx.array(geom[:, 1]),
         geom=mx.array(geom[:, :2]),
-        efc_address=d._impl.contact.efc_address,
+        efc_address=(d._impl or d).contact.efc_address,
     )
 
   return groups
@@ -378,10 +378,11 @@ def make_condim(
 
 def collision(m: Model, d: Data) -> Data:
   """Collides geometries."""
-  if not isinstance(m._impl, ModelMLX) or not isinstance(d._impl, DataMLX):
-    raise ValueError('collision requires MLX backend implementation.')
+  # MLX port: accept any Model/Data (no impl check needed — we only have MLX)
+  if d._impl is None:
+    return d  # no collision state to process
 
-  if d._impl.ncon == 0:
+  if (d._impl or d).ncon == 0:
     return d
 
   max_geom_pairs = _numeric(m, 'max_geom_pairs')

@@ -406,6 +406,34 @@ def make_data(
   # Only pass fields that exist on our Data dataclass
   data_field_names = {f.name for f in types.Data.fields()}
   filtered_data = {k: v for k, v in all_data_fields.items() if k in data_field_names}
+
+  # Create DataMLX _impl with internal state arrays
+  impl_fields = {}
+  for k, v in zero_impl_fields.items():
+    if isinstance(v, np.ndarray):
+      impl_fields[k] = v
+    elif isinstance(v, tuple) and len(v) >= 2:
+      impl_fields[k] = np.zeros(v[:-1], dtype=v[-1])
+    else:
+      impl_fields[k] = v
+  impl_field_names = {f.name for f in types.DataMLX.fields()}
+  impl_filtered = {k: v for k, v in impl_fields.items() if k in impl_field_names}
+  # Add required fields with defaults
+  for f in types.DataMLX.fields():
+    if f.name not in impl_filtered:
+      if f.type == int:
+        impl_filtered[f.name] = 0
+      elif f.name == 'contact':
+        impl_filtered[f.name] = contact
+      elif f.name == 'efc_type':
+        impl_filtered[f.name] = efc_type
+      elif f.default is not dataclasses.MISSING:
+        impl_filtered[f.name] = f.default
+      elif f.default_factory is not dataclasses.MISSING:
+        impl_filtered[f.name] = f.default_factory()
+  data_impl = types.DataMLX(**impl_filtered)
+  filtered_data['_impl'] = data_impl
+
   d = types.Data(**filtered_data)
 
   if m.nmocap:
@@ -679,7 +707,7 @@ def get_data_into(
     while j > -1:
       dof_i.append(i)
       dof_j.append(j)
-      j = m.dof_parentid[j]
+      j = int(m.dof_parentid[j])
 
   for i in range(batch_size):
     if is_batched:

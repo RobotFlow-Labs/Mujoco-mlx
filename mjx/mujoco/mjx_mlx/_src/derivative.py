@@ -52,8 +52,8 @@ def deriv_smooth_vel(m: Model, d: Data) -> Optional[mx.array]:
     ctrl_np[dyn_mask] = np.array(d.act)
     ctrl = mx.array(ctrl_np)
     vel = bias_vel + gain_vel * ctrl
-    qderiv = d._impl.actuator_moment.T @ (
-        d._impl.actuator_moment * vel[:, None]
+    qderiv = (d._impl or d).actuator_moment.T @ (
+        (d._impl or d).actuator_moment * vel[:, None]
     )
 
   # qDeriv += d qfrc_passive / d qvel
@@ -63,7 +63,7 @@ def deriv_smooth_vel(m: Model, d: Data) -> Optional[mx.array]:
     else:
       qderiv -= mx.diag(m.dof_damping)
     if m.ntendon:
-      qderiv -= d._impl.ten_J.T @ mx.diag(m.tendon_damping) @ d._impl.ten_J
+      qderiv -= (d._impl or d).ten_J.T @ mx.diag(m.tendon_damping) @ (d._impl or d).ten_J
 
   if not m.opt.disableflags & (DisableBit.DAMPER | DisableBit.SPRING):
     # TODO(robotics-simulation): fluid drag model
