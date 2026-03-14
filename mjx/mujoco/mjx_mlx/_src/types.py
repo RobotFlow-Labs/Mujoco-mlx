@@ -27,10 +27,45 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Helper base class: replaces flax/JAX PyTreeNode with a plain dataclass.
 # ---------------------------------------------------------------------------
+import copy
+from typing import Dict, Optional, Sequence as _Seq
+
+
+def _tree_replace_impl(base, attr, val):
+  """Sets attributes in a dataclass with values (dot-path traversal)."""
+  if not attr:
+    return base
+  # special case for List attribute
+  if len(attr) > 1 and isinstance(getattr(base, attr[0]), list):
+    lst = copy.copy(getattr(base, attr[0]))
+    for i, g in enumerate(lst):
+      if not hasattr(g, attr[1]):
+        continue
+      v = val if not hasattr(val, '__iter__') else val[i]
+      lst[i] = _tree_replace_impl(g, attr[1:], v)
+    return dataclasses.replace(base, **{attr[0]: lst})
+  if len(attr) == 1:
+    return dataclasses.replace(base, **{attr[0]: val})
+  return dataclasses.replace(
+      base,
+      **{attr[0]: _tree_replace_impl(getattr(base, attr[0]), attr[1:], val)}
+  )
+
+
 @dataclasses.dataclass
 class MLXNode:
   """Plain dataclass base that replaces JAX PyTreeNode for MLX."""
-  pass
+
+  def replace(self, **overrides):
+    """Return a copy with specified fields replaced."""
+    return dataclasses.replace(self, **overrides)
+
+  def tree_replace(self, params: Dict[str, Any]) -> 'MLXNode':
+    """Replace nested fields using dot-separated keys."""
+    new = self
+    for k, v in params.items():
+      new = _tree_replace_impl(new, k.split('.'), v)
+    return new
 
 
 class DisableBit(enum.IntFlag):
