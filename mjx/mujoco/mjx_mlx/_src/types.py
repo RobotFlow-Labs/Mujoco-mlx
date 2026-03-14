@@ -534,7 +534,7 @@ class Option(MLXNode):
   integrator: IntegratorType
   solver: SolverType
   timestep: mx.array
-  _impl: OptionMLX
+  _impl: OptionMLX = None
 
 
 @dataclasses.dataclass
@@ -928,7 +928,7 @@ class Model(MLXNode):
   names: bytes
   signature: np.uint64
   _sizes: mx.array
-  _impl: ModelMLX
+  _impl: ModelMLX = None
 
 
 @dataclasses.dataclass
@@ -1079,4 +1079,4 @@ class Data(MLXNode):
   qacc_smooth: mx.array
   qfrc_constraint: mx.array
   qfrc_inverse: mx.array
-  _impl: DataMLX
+  _impl: DataMLX = None

@@ -86,9 +86,14 @@ def _put_option(
   implicitfast = o.integrator == mujoco.mjtIntegrator.mjINT_IMPLICITFAST
   if implicitfast and has_fluid_params:
     raise NotImplementedError('implicitfast not implemented for fluid drag.')
-  fields['has_fluid_params'] = has_fluid_params
 
-  return types.Option(**fields)
+  # Only pass fields that exist in our Option dataclass
+  option_field_names = {f.name for f in types.Option.fields()}
+  filtered = {k: v for k, v in fields.items() if k in option_field_names}
+  if 'has_fluid_params' in option_field_names:
+    filtered['has_fluid_params'] = has_fluid_params
+
+  return types.Option(**filtered)
 
 
 def _put_statistic(s: mujoco.MjStatistic) -> types.Statistic:
@@ -178,12 +183,27 @@ def put_model(
           f'{[mj_type(m) for m in missing]} not supported'
       )
 
-  mj_field_names = {f.name for f in types.Model.fields() if f.name not in (
+  # Fields that only exist in our MLX types, not on C MjModel
+  _mlx_only_fields = {
       'dof_hasfrictionloss', 'tendon_hasfrictionloss', 'geom_rbound_hfield',
       'wrap_inside_maxiter', 'wrap_inside_tolerance', 'wrap_inside_z_init',
-      'is_wrap_inside', 'mesh_convex', 'opt', 'stat',
-  )}
-  fields = {f: getattr(m, f) for f in mj_field_names}
+      'is_wrap_inside', 'mesh_convex', 'opt', 'stat', '_impl',
+  }
+  mj_field_names = {f.name for f in types.Model.fields() if f.name not in _mlx_only_fields}
+  # Only copy fields that exist on the C MjModel
+  fields = {}
+  for f in mj_field_names:
+    if hasattr(m, f):
+      fields[f] = getattr(m, f)
+    else:
+      # Use default from the dataclass
+      field_obj = next((fld for fld in types.Model.fields() if fld.name == f), None)
+      if field_obj is not None and field_obj.default is not dataclasses.MISSING:
+        fields[f] = field_obj.default
+      elif field_obj is not None and field_obj.default_factory is not dataclasses.MISSING:
+        fields[f] = field_obj.default_factory()
+      else:
+        fields[f] = 0  # safe fallback
   fields['cam_mat0'] = fields['cam_mat0'].reshape((-1, 3, 3))
   fields['opt'] = _put_option(m.opt)
   fields['stat'] = _put_statistic(m.stat)
@@ -222,7 +242,10 @@ def put_model(
       fields['mesh_convex'][dataid] = mesh.convex(m, dataid)
   fields['mesh_convex'] = tuple(fields['mesh_convex'])
 
-  model = types.Model(**{k: copy.copy(v) for k, v in fields.items()})
+  # Only pass fields that exist on our Model dataclass
+  model_field_names = {f.name for f in types.Model.fields()}
+  model_fields = {k: copy.copy(v) for k, v in fields.items() if k in model_field_names}
+  model = types.Model(**model_fields)
 
   # Convert numpy arrays to MLX arrays
   model = _numpy_to_mlx(model)
@@ -324,7 +347,7 @@ def make_data(
   # operate on numpy/MjModel data before array placement.
   from mujoco.mjx_mlx._src import types as jax_types  # pylint: disable=g-import-not-at-top
 
-  dim = collision_driver.make_condim(m, impl=jax_types.Impl.JAX)
+  dim = collision_driver.make_condim(m)
   efc_type = constraint.make_efc_type(m, dim)
   ne, nf, nl, nc = constraint.counts(efc_type)
   ncon, nefc = dim.size, ne + nf + nl + nc
@@ -372,19 +395,18 @@ def make_data(
       k: np.zeros(v[:-1], dtype=v[-1]) for k, v in zero_impl_fields.items()
   }
 
-  d = types.Data(
-      ne=ne,
-      nf=nf,
-      nl=nl,
-      nefc=nefc,
-      ncon=ncon,
-      contact=contact,
-      efc_type=efc_type,
-      qpos=np.array(m.qpos0, dtype=float_),
-      eq_active=m.eq_active0,
+  all_data_fields = {
+      'ne': ne, 'nf': nf, 'nl': nl, 'nefc': nefc, 'ncon': ncon,
+      'contact': contact, 'efc_type': efc_type,
+      'qpos': np.array(m.qpos0, dtype=float_),
+      'eq_active': m.eq_active0,
       **_make_data_public_fields(m),
       **zero_impl_fields,
-  )
+  }
+  # Only pass fields that exist on our Data dataclass
+  data_field_names = {f.name for f in types.Data.fields()}
+  filtered_data = {k: v for k, v in all_data_fields.items() if k in data_field_names}
+  d = types.Data(**filtered_data)
 
   if m.nmocap:
     body_mask = m.body_mocapid >= 0
@@ -469,7 +491,7 @@ def put_data(
   """
   from mujoco.mjx_mlx._src import types as jax_types  # pylint: disable=g-import-not-at-top
 
-  dim = collision_driver.make_condim(m, impl=jax_types.Impl.JAX)
+  dim = collision_driver.make_condim(m)
   efc_type = constraint.make_efc_type(m, dim)
   efc_address = constraint.make_efc_address(m, dim, efc_type)
   ne, nf, nl, nc = constraint.counts(efc_type)
