@@ -102,6 +102,7 @@ def norm(
     Norm of the array x.
   """
 
+  x = mx.array(x) if not isinstance(x, mx.array) else x
   is_zero = _allclose(x, 0.0)
   # temporarily swap x with ones if is_zero, then swap back
   x = mx.where(is_zero, mx.ones_like(x), x)
