@@ -67,8 +67,8 @@ def fwd_position(m: Model, d: Data) -> Data:
 def fwd_velocity(m: Model, d: Data) -> Data:
   """Velocity-dependent computations."""
   d = d.tree_replace({
-      '_impl.actuator_velocity': (d._impl or d).actuator_moment @ d.qvel,
-      '_impl.ten_velocity': (d._impl or d).ten_J @ d.qvel,
+      '_impl.actuator_velocity': (d._impl or d).actuator_moment @ mx.array(d.qvel),
+      '_impl.ten_velocity': (d._impl or d).ten_J @ mx.array(d.qvel),
   })
   d = smooth.com_vel(m, d)
   d = passive_mod.passive(m, d)
@@ -85,7 +85,7 @@ def fwd_actuation(m: Model, d: Data) -> Data:
         qfrc_actuator=mx.zeros((m.nv,)),
     )
 
-  ctrl = d.ctrl
+  ctrl = mx.array(d.ctrl) if not isinstance(d.ctrl, mx.array) else d.ctrl
   if not m.opt.disableflags & DisableBit.CLAMPCTRL:
     ctrlrange = mx.where(
         m.actuator_ctrllimited[:, None],
@@ -216,7 +216,7 @@ def fwd_actuation(m: Model, d: Data) -> Data:
       m.jnt_actfrcrange,
       mx.array([-mx.inf, mx.inf]),
   )
-  actfrcrange = actfrcrange[m.dof_jntid]
+  actfrcrange = mx.take(actfrcrange, mx.array(np.array(m.dof_jntid)), axis=0)
   qfrc_actuator = mx.clip(qfrc_actuator, actfrcrange[:, 0], actfrcrange[:, 1])
 
   d = d.replace(
@@ -335,7 +335,7 @@ def euler(m: Model, d: Data) -> Data:
         delta_np[diag_indices[i]] += float(damping_vals[i])
       qM = (d._impl or d).qM + mx.array(delta_np)
     else:
-      qM = (d._impl or d).qM + mx.diag(m.opt.timestep * m.dof_damping)
+      qM = (d._impl or d).qM + mx.diag(mx.array(m.opt.timestep * np.array(m.dof_damping)))
     dh = d.tree_replace({'_impl.qM': qM})
     dh = smooth.factor_m(m, dh)
     qfrc = d.qfrc_smooth + d.qfrc_constraint

@@ -132,7 +132,7 @@ def _take(obj: Y, idx: np.ndarray) -> Y:
     ):
       x = x[idx[0] : idx[-1] + 1]
     else:
-      x = x.take(mx.array(idx), axis=0, mode='wrap')
+      x = mx.take(x, mx.array(idx % x.shape[0]), axis=0)
     return x
 
   return _tree_map(take, obj)

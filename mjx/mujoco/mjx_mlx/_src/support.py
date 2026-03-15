@@ -350,6 +350,8 @@ def apply_ft(
 ) -> mx.array:
   """Apply Cartesian force and torque."""
   jacp, jacr = jac(m, d, point, body_id)
+  force = mx.array(force) if not isinstance(force, mx.array) else force
+  torque = mx.array(torque) if not isinstance(torque, mx.array) else torque
   return jacp @ force + jacr @ torque
 
 

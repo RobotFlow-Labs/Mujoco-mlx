@@ -74,6 +74,19 @@ def _kbi(
     pos: mx.array,
 ) -> Tuple[mx.array, mx.array, mx.array]:
   """Calculates stiffness, damping, and impedance of a constraint."""
+  # Ensure solref/solimp are at least 1-D arrays
+  solref = mx.array(solref) if not isinstance(solref, mx.array) else solref
+  solimp = mx.array(solimp) if not isinstance(solimp, mx.array) else solimp
+  pos = mx.array(pos) if not isinstance(pos, mx.array) else pos
+  if solref.ndim == 0:
+    solref = mx.reshape(solref, (1,))
+  if solimp.ndim == 0:
+    solimp = mx.reshape(solimp, (1,))
+  # Pad if too short
+  if solref.shape[0] < 2:
+    solref = mx.concatenate([solref, mx.zeros(2 - solref.shape[0])])
+  if solimp.shape[0] < 5:
+    solimp = mx.concatenate([solimp, mx.zeros(5 - solimp.shape[0])])
   timeconst, dampratio = solref[0], solref[1]
 
   if not m.opt.disableflags & DisableBit.REFSAFE:
@@ -886,7 +899,8 @@ def make_constraint(m: Model, d: Data) -> Data:
                   efc_solimp, efc_margin, efc_frictionloss):
     k, b, imp = _kbi(m, efc_solref, efc_solimp, efc_pos_imp)
     r = mx.maximum(efc_invweight * (1 - imp) / imp, mx.array(mujoco.mjMINVAL))
-    aref = -b * (efc_J @ d.qvel) - k * imp * efc_pos_aref
+    qvel = mx.array(d.qvel) if not isinstance(d.qvel, mx.array) else d.qvel
+    aref = -b * (efc_J @ qvel) - k * imp * efc_pos_aref
     return aref, r, efc_pos_aref + efc_margin, efc_margin, efc_frictionloss
 
   n_efc = efc.J.shape[0]

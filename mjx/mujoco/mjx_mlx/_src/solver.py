@@ -83,8 +83,9 @@ class Context(PyTreeNode):
     ):
       pass  # MLX port: backend check removed
 
-    jaref = (d._impl or d).efc_J @ d.qacc - (d._impl or d).efc_aref
-    ma = support.mul_m(m, d, d.qacc)
+    qacc = mx.array(d.qacc) if not isinstance(d.qacc, mx.array) else d.qacc
+    jaref = (d._impl or d).efc_J @ qacc - (d._impl or d).efc_aref
+    ma = support.mul_m(m, d, qacc)
     nv_0 = mx.zeros(m.nv)
     fri = mx.array(0.0)
     if m.opt.cone == ConeType.ELLIPTIC:
@@ -177,8 +178,8 @@ class _LSPoint(PyTreeNode):
       mask_ne_nf = mx.arange(x.shape[0]) < ne_nf
       active = mx.where(mask_ne_nf, True, active)
 
-    dof_fl = (m._impl or m).dof_hasfrictionloss
-    ten_fl = (m._impl or m).tendon_hasfrictionloss
+    dof_fl = (np.array(m.dof_frictionloss) > 0)
+    ten_fl = (np.array(m.tendon_frictionloss) > 0)
     if (dof_fl.any() or ten_fl.any()) and not (
         m.opt.disableflags & DisableBit.FRICTIONLOSS
     ):
@@ -302,10 +303,11 @@ def _update_constraint(m: Model, d: Data, ctx: Context) -> Context:
     mask_ne_nf = mx.arange(ctx.Jaref.shape[0]) < ne_nf
     active = mx.where(mask_ne_nf, True, active)
 
-  floss_force = mx.zeros((d._impl or d).nefc)
+  nefc_actual = ctx.Jaref.shape[0] if ctx.Jaref.ndim > 0 else 0
+  floss_force = mx.zeros(nefc_actual)
   floss_cost = mx.array(0.0)
-  dof_fl = (m._impl or m).dof_hasfrictionloss
-  ten_fl = (m._impl or m).tendon_hasfrictionloss
+  dof_fl = (np.array(m.dof_frictionloss) > 0)
+  ten_fl = (np.array(m.tendon_frictionloss) > 0)
   if (dof_fl.any() or ten_fl.any()) and not (
       m.opt.disableflags & DisableBit.FRICTIONLOSS
   ):
@@ -478,11 +480,11 @@ def _update_gradient(m: Model, d: Data, ctx: Context) -> Context:
     # Symmetrize to reduce the chance of numerical issues in cholesky
     h_sym = (h + h.T) * 0.5
     # MLX Cholesky solve: L = cholesky(h_sym), solve L L^T x = grad
-    L = mx.linalg.cholesky(h_sym)
+    L = mx.linalg.cholesky(h_sym, stream=mx.cpu)
     # Forward substitution: L y = grad
-    y = mx.linalg.solve_triangular(L, grad[:, None], upper=False)
+    y = mx.linalg.solve_triangular(L, grad[:, None], upper=False, stream=mx.cpu)
     # Backward substitution: L^T x = y
-    mgrad = mx.linalg.solve_triangular(L.T, y, upper=True).squeeze(-1)
+    mgrad = mx.linalg.solve_triangular(L.T, y, upper=True, stream=mx.cpu).squeeze(-1)
   else:
     raise NotImplementedError(f'unsupported solver type: {m.opt.solver}')
 
@@ -640,9 +642,11 @@ def solve(m: Model, d: Data) -> Data:
     improvement = _rescale(m, ctx.prev_cost - ctx.cost)
     gradient = _rescale(m, math.norm(ctx.grad))
 
-    done = int(ctx.solver_niter.item()) >= m.opt.iterations
-    done = done or (float(improvement.item()) < float(m.opt.tolerance.item()))
-    done = done or (float(gradient.item()) < float(m.opt.tolerance.item()))
+    tol = float(m.opt.tolerance) if not hasattr(m.opt.tolerance, 'item') else float(m.opt.tolerance.item())
+    niter = int(ctx.solver_niter.item()) if hasattr(ctx.solver_niter, 'item') else int(ctx.solver_niter)
+    done = niter >= m.opt.iterations
+    done = done or (float(improvement.item()) < tol)
+    done = done or (float(gradient.item()) < tol)
 
     return not done
 

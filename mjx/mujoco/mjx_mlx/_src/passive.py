@@ -16,6 +16,7 @@
 
 from typing import Tuple
 
+import numpy as np
 import mlx.core as mx
 from mujoco.mjx_mlx._src import math
 from mujoco.mjx_mlx._src import scan
@@ -31,6 +32,11 @@ from mujoco.mjx_mlx._src.types import OptionMLX
 
 def _spring_damper(m: Model, d: Data) -> mx.array:
   """Applies joint level spring and damping forces."""
+  # Early return if no springs or damping
+  stiff = np.array(m.jnt_stiffness) if hasattr(m, 'jnt_stiffness') else np.zeros(0)
+  damp = np.array(m.dof_damping) if hasattr(m, 'dof_damping') else np.zeros(0)
+  if not np.any(stiff != 0) and not np.any(damp != 0):
+    return mx.zeros((m.nv,))
 
   def fn(jnt_typs, stiffness, qpos_spring, qpos):
     qpos_i = 0
@@ -58,7 +64,8 @@ def _spring_damper(m: Model, d: Data) -> mx.array:
 
   # dof-level springs
   qfrc = mx.zeros((m.nv,))
-  if not m.opt.disableflags & DisableBit.SPRING:
+  has_springs = np.any(np.array(m.jnt_stiffness) != 0) if hasattr(m, 'jnt_stiffness') else False
+  if not m.opt.disableflags & DisableBit.SPRING and has_springs:
     qfrc = scan.flat(
         m,
         fn,
@@ -194,7 +201,8 @@ def passive(m: Model, d: Data) -> Data:
         1 - m.jnt_actgravcomp[m.dof_jntid]
     )
 
-  if m.opt._impl.has_fluid_params:
+  has_fluid = getattr(m.opt._impl, 'has_fluid_params', False) if m.opt._impl else (m.opt.density > 0 or m.opt.viscosity > 0)
+  if has_fluid:
     qfrc_passive = qfrc_passive + _fluid(m, d)
 
   d = d.replace(qfrc_passive=qfrc_passive, qfrc_gravcomp=qfrc_gravcomp)
